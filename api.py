@@ -1,9 +1,10 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import logging
-
-from main_router import router as auth_router
-# from quis_router import router as quiz_router
+from pipeline import router as auth_router
+from tickets import routes as ticket_routes
+from opd import routes as opd_routes
+from roles import routes as roles_routes
 
 app = FastAPI()
 
@@ -24,9 +25,11 @@ async def root():
     return {"message": "Server is running!"}
 
 
-# Include routers
 app.include_router(auth_router)
-# app.include_router(quiz_router)
+app.include_router(roles_routes.router, tags=["Roles"])
+app.include_router(opd_routes.router)
+app.include_router(roles_routes.router, tags=["Roles"])
+app.include_router(ticket_routes.router, prefix="/api", tags=["Tickets"])
 
 if __name__ == "__main__":
     import uvicorn

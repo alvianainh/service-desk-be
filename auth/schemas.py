@@ -8,11 +8,10 @@ class UserRole(str, Enum):
     admin = "admin"
 
 class RegisterModel(BaseModel):
-    email: EmailStr
+    email: str
     first_name: str
     last_name: str
     password: str
-    role: Optional[UserRole] = UserRole.user
 
 class LoginModel(BaseModel):
     email: str

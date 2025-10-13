@@ -9,6 +9,10 @@ from sqlalchemy.orm import Session
 from auth.schemas import RegisterModel
 from . import models, database
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from .database import get_db
+from .models import Users, Roles, UserRoles
+from jose import JWTError, jwt
+
 
 load_dotenv()
 
@@ -44,26 +48,73 @@ def decode_token(token: str):
     except PyJWTError:
         raise HTTPException(status_code=401, detail="Invalid token")
 
-async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    token = credentials.credentials
-    email = decode_token(token)
-    return email
+# async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security), db: Session = Depends(get_db)):
+#     token = credentials.credentials
+#     try:
+#         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+#         user_email = payload.get("sub")
+#         if user_email is None:
+#             raise HTTPException(status_code=401, detail="Invalid token")
 
-# -------------------------
-# REGISTER USER
-# -------------------------
+#         user = db.query(Users).filter(Users.email == user_email).first()
+#         if not user:
+#             raise HTTPException(status_code=401, detail="User not found")
+
+#         return {
+#             "id": str(user.id),
+#             "email": user.email,
+#             "role": user.role
+#         }
+
+#     except PyJWTError:
+#         raise HTTPException(status_code=401, detail="Invalid token")
+
+async def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db)
+):
+    token = credentials.credentials
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_email = payload.get("sub") 
+        role_names = payload.get("roles")
+
+
+        if not user_email:
+            raise HTTPException(status_code=401, detail="Invalid token")
+
+        user = db.query(Users).filter(Users.email == user_email).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        roles = (
+            db.query(Roles.role_name)
+            .join(UserRoles, Roles.role_id == UserRoles.role_id)
+            .filter(UserRoles.user_id == user.id)
+            .all()
+        )
+        role_names = [r.role_name for r in roles]
+
+        return {
+            "id": str(user.id),
+            "email": user.email,
+            "roles": role_names
+        }
+
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
 async def register_user(data: RegisterModel, db: Session = Depends(database.get_db)):
-    existing_user = db.query(models.User).filter(models.User.email == data.email).first()
+    existing_user = db.query(models.Users).filter(models.Users.email == data.email).first()
     if existing_user:
         return {"error": "Email already registered"}
 
     hashed_pw = hash_password(data.password)
-    new_user = models.User(
+    new_user = models.Users(
         email=data.email,
         password=hashed_pw,
         first_name=data.first_name,
-        last_name=data.last_name,
-        role=data.role  # <-- tambahkan role di sini
+        last_name=data.last_name
     )
     db.add(new_user)
     db.commit()
@@ -71,9 +122,6 @@ async def register_user(data: RegisterModel, db: Session = Depends(database.get_
     return {"message": "User registered successfully"}
 
 
-# -------------------------
-# GET USER BY EMAIL
-# -------------------------
 async def get_user_by_email(email: str, db: Session = Depends(database.get_db)):
-    user = db.query(models.User).filter(models.User.email == email).first()
+    user = db.query(models.Users).filter(models.Users.email == email).first()
     return user

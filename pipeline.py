@@ -34,14 +34,24 @@ async def login(data: LoginModel, db: Session = Depends(database.get_db)):
     if not user or not verify_password(data.password, user.password):
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
+    from auth.models import Roles, UserRoles 
+    roles = (
+        db.query(Roles.role_name)
+        .join(UserRoles, Roles.role_id == UserRoles.role_id)
+        .filter(UserRoles.user_id == user.id)
+        .all()
+    )
+    role_names = [r.role_name for r in roles] if roles else ["user"]
+
     access_token = create_access_token(
         data={
             "sub": user.email,
-            "role": user.role,
             "first_name": user.first_name,
             "last_name": user.last_name,
+            "roles": role_names
         }
     )
+
     return {
         "access_token": access_token,
         "token_type": "bearer",
@@ -49,6 +59,6 @@ async def login(data: LoginModel, db: Session = Depends(database.get_db)):
             "email": user.email,
             "first_name": user.first_name,
             "last_name": user.last_name,
-            "role": user.role  # kirim role ke frontend
+            "roles": role_names
         }
     }
