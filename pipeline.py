@@ -95,12 +95,10 @@ async def root():
 async def register(data: RegisterModel, db: Session = Depends(database.get_db)):
     logger.info(f"POST /register - Register request for email: {data.email}")
     
-    # Cek apakah user sudah ada
     existing_user = db.query(Users).filter(Users.email == data.email).first()
     if existing_user:
         return {"error": "Email already registered"}
     
-    # Buat user baru
     hashed_pw = hash_password(data.password)
     new_user = Users(
         email=data.email,
@@ -120,12 +118,10 @@ async def register(data: RegisterModel, db: Session = Depends(database.get_db)):
     db.commit()
     db.refresh(new_user)
 
-    # 🔹 Tambahkan default role 'masyarakat'
     from auth.models import Roles, UserRoles
 
     role = db.query(Roles).filter(Roles.role_name == "masyarakat").first()
     if not role:
-        # Kalau role belum ada, buat dulu
         role = Roles(role_name="masyarakat", description="Default role for new users")
         db.add(role)
         db.commit()
@@ -135,7 +131,6 @@ async def register(data: RegisterModel, db: Session = Depends(database.get_db)):
     db.add(new_user_role)
     db.commit()
 
-    # Generate token
     access_token = create_access_token(new_user, db)
 
     logger.info(f"POST /register - User registered successfully: {new_user.email}")

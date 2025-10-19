@@ -72,7 +72,6 @@ class Opd(Base):
     opd_name = Column(String, unique=True, nullable=False)
     description = Column(Text)
 
-    # relasi ke Users
     users = relationship("Users", back_populates="opd")
 
 class Articles(Base):
