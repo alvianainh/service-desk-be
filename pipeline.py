@@ -126,7 +126,6 @@ async def register(data: RegisterModel, db: Session = Depends(database.get_db)):
         db.add(role)
         db.commit()
         db.refresh(role)
-        
 
     new_user_role = UserRoles(user_id=new_user.id, role_id=role.role_id)
     db.add(new_user_role)
