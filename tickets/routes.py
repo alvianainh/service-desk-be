@@ -6,7 +6,7 @@ from . import models, schemas
 from auth.database import get_db
 from auth.auth import get_current_user, get_user_by_email
 from tickets import models, schemas
-from tickets.models import Tickets, TicketAttachment, TicketCategories
+from tickets.models import Tickets, TicketAttachment, TicketCategories, TicketUpdates
 from tickets.schemas import TicketCreateSchema, TicketResponseSchema, TicketCategorySchema, TicketForSeksiSchema
 import uuid
 import os
@@ -22,6 +22,7 @@ SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 BUCKET_NAME = "docs"
+PRIORITY_OPTIONS = ["Low", "Medium", "High", "Critical"]
 
 @router.post("/pelaporan-online")
 async def create_public_report(
@@ -197,3 +198,62 @@ async def get_tickets_for_seksi(
 
     tickets = db.query(Tickets).filter(Tickets.opd_id == opd_id).all()
     return tickets
+
+
+@router.get("/tickets/seksi/{ticket_id}", response_model=TicketForSeksiSchema)
+async def get_ticket_detail_seksi(
+    ticket_id: str,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    if "seksi" not in current_user.get("roles", []):
+        raise HTTPException(status_code=403, detail="Access denied: only seksi can view this data")
+
+    opd_id = current_user.get("opd_id")
+    ticket = db.query(Tickets).filter(Tickets.ticket_id == ticket_id, Tickets.opd_id == opd_id).first()
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found or access denied")
+
+    return ticket
+
+
+@router.post("/tickets/seksi/verify/{ticket_id}")
+async def verify_ticket_seksi(
+    ticket_id: str,
+    priority: str = Form(...),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    if "seksi" not in current_user.get("roles", []):
+        raise HTTPException(status_code=403, detail="Access denied: only seksi can verify tickets")
+
+    if priority not in PRIORITY_OPTIONS:
+        raise HTTPException(status_code=400, detail=f"Invalid priority, must be one of {PRIORITY_OPTIONS}")
+
+    opd_id = current_user.get("opd_id")
+    ticket = db.query(Tickets).filter(Tickets.ticket_id == ticket_id, Tickets.opd_id == opd_id).first()
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found or access denied")
+
+    ticket.priority = priority
+    ticket.status = "Verified by Seksi"
+    ticket.updated_at = datetime.utcnow()
+    db.add(ticket)
+
+    update = TicketUpdates(
+        status_change=ticket.status,
+        notes=f"Verified by Seksi with priority {priority}",
+        update_time=datetime.utcnow(),
+        has_calendar_id=ticket.opd_id,
+        makes_by_id=current_user["id"],
+        ticket_id=ticket.ticket_id
+    )
+    db.add(update)
+    db.commit()
+
+    return {
+        "message": f"Ticket {ticket_id} verified successfully",
+        "ticket_id": ticket_id,
+        "status": ticket.status,
+        "priority": ticket.priority
+    }

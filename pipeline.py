@@ -1,6 +1,8 @@
 import logging
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
 from sqlalchemy.orm import Session
+from auth.database import get_db
+
 
 from auth.schemas import RegisterModel, LoginModel
 from auth.auth import (
@@ -9,15 +11,58 @@ from auth.auth import (
     create_access_token,
     get_user_by_email,
     hash_password,
+    get_current_user,
 )
 from auth import database
 from auth.models import Users, Roles, UserRoles
-
+from pydantic import BaseModel
+from typing import List, Optional
+from datetime import date
+from uuid import UUID
+import uuid
+import mimetypes
+import os
+from supabase import create_client, Client
 
 router = APIRouter()
 
+
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+BUCKET_NAME = "avatar"
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+class UserProfileSchema(BaseModel):
+    id: UUID
+    email: str
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    phone_number: Optional[str] = None
+    birth_date: Optional[date] = None
+    address: Optional[str] = None
+    jabatan: Optional[str] = None
+    start_date: Optional[date] = None
+    profile_url: Optional[str] = None
+    roles: List[str] = []
+    opd_id: Optional[UUID] = None
+    no_employee: Optional[str] = None
+    division: Optional[str] = None
+
+    model_config = {
+        "from_attributes": True  # Pydantic V2
+    }
+
+class UserProfileUpdateSchema(BaseModel):
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    phone_number: Optional[str] = None
+    birth_date: Optional[date] = None
+    address: Optional[str] = None
+
+
 
 @router.get("/")
 async def root():
@@ -176,4 +221,102 @@ async def login(data: LoginModel, db: Session = Depends(database.get_db)):
             "last_name": user.last_name,
             "roles": role_names
         }
+    }
+
+@router.get("/profile", response_model=UserProfileSchema)
+async def get_profile(
+    current_user: dict = Depends(get_current_user), 
+    db: Session = Depends(get_db)
+):
+    user = db.query(Users).filter(Users.id == current_user["id"]).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    roles = (
+        db.query(Roles.role_name)
+        .join(UserRoles, Roles.role_id == UserRoles.role_id)
+        .filter(UserRoles.user_id == user.id)
+        .all()
+    )
+    role_names = [r.role_name for r in roles]
+
+    return {
+        "id": user.id,
+        "email": user.email,
+        "first_name": user.first_name,
+        "last_name": user.last_name,
+        "phone_number": user.phone_number,
+        "birth_date": user.birth_date,
+        "address": user.address,
+        "jabatan": user.jabatan,
+        "start_date": user.start_date,
+        "profile_url": user.profile_url,
+        "roles": role_names,
+        "opd_id": user.opd_id,
+        "no_employee": user.no_employee,
+        "division": user.division
+    }
+
+@router.put("/profile", response_model=UserProfileSchema)
+async def update_profile(
+    first_name: Optional[str] = Form(None),
+    last_name: Optional[str] = Form(None),
+    phone_number: Optional[str] = Form(None),
+    birth_date: Optional[date] = Form(None),
+    address: Optional[str] = Form(None),
+    file: UploadFile = File(None),
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    user = db.query(Users).filter(Users.id == current_user["id"]).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if first_name is not None:
+        user.first_name = first_name
+    if last_name is not None:
+        user.last_name = last_name
+    if phone_number is not None:
+        user.phone_number = phone_number
+    if birth_date is not None:
+        user.birth_date = birth_date
+    if address is not None:
+        user.address = address
+
+    if file:
+        file_extension = file.filename.split(".")[-1]
+        file_path = f"avatar/{user.id}_{uuid.uuid4()}.{file_extension}"
+        file_data = await file.read()
+
+        content_type, _ = mimetypes.guess_type(file.filename)
+        if not content_type:
+            content_type = "application/octet-stream"
+
+        supabase.storage.from_("avatar").upload(file_path, file_data, {"content-type": content_type})
+
+        public_url = supabase.storage.from_("avatar").get_public_url(file_path) 
+        user.profile_url = public_url
+
+    db.commit()
+    db.refresh(user)
+
+    roles = [r.role_name for r in db.query(Roles.role_name)
+             .join(UserRoles, Roles.role_id == UserRoles.role_id)
+             .filter(UserRoles.user_id == user.id).all()]
+
+    return {
+        "id": user.id,
+        "email": user.email,
+        "first_name": user.first_name,
+        "last_name": user.last_name,
+        "phone_number": user.phone_number,
+        "birth_date": user.birth_date,
+        "address": user.address,
+        "profile_url": user.profile_url,
+        "roles": roles,
+        "opd_id": user.opd_id,
+        "no_employee": user.no_employee,
+        "division": user.division,
+        "jabatan": user.jabatan,
+        "start_date": user.start_date
     }

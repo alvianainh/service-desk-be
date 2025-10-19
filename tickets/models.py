@@ -75,3 +75,20 @@ class TicketCategories(Base):
     description = Column(Text)
 
     tickets = relationship("Tickets", back_populates="category")
+
+
+class TicketUpdates(Base):
+    __tablename__ = "ticket_updates"
+
+    update_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    status_change = Column(String(50), nullable=False)
+    notes = Column(Text, nullable=True)
+    update_time = Column(DateTime, nullable=False, default=datetime.utcnow)
+    
+    has_calendar_id = Column(UUID(as_uuid=True), ForeignKey("opd.opd_id", ondelete="CASCADE"), nullable=True)
+    makes_by_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
+    ticket_id = Column(UUID(as_uuid=True), ForeignKey("tickets.ticket_id", ondelete="CASCADE"), nullable=True)
+
+    opd = relationship("Opd", backref="ticket_updates", foreign_keys=[has_calendar_id])
+    user = relationship("Users", backref="ticket_updates", foreign_keys=[makes_by_id])
+    ticket = relationship("Tickets", backref="updates", foreign_keys=[ticket_id])
