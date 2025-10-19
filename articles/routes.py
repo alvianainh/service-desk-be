@@ -106,7 +106,34 @@ async def update_article(
     }
 
 
-# Verifikasi artikel (admin_kota)
+#UPDATE APPROVE REJECT DUA ARAH
+# @router.put("/{article_id}/verify")
+# async def verify_article(
+#     article_id: str,
+#     decision: str,  # "approve" atau "reject"
+#     db: Session = Depends(get_db),
+#     current_user: dict = Depends(get_current_user)
+# ):
+#     roles = current_user.get("roles", [])
+
+#     if "admin_kota" not in roles:
+#         raise HTTPException(status_code=403, detail="Unauthorized: Only admin_kota can verify articles")
+
+#     article = db.query(Articles).filter(Articles.article_id == article_id).first()
+#     if not article:
+#         raise HTTPException(status_code=404, detail="Article not found")
+
+#     if decision not in ["approve", "reject"]:
+#         raise HTTPException(status_code=400, detail="Invalid decision. Must be 'approve' or 'reject'")
+
+#     article.status = "approved" if decision == "approve" else "rejected"
+#     article.approved_id = current_user["id"]
+#     db.commit()
+
+#     return {"message": f"Article has been {article.status}"}
+
+
+# UPDATE APPROVAL SATU ARAH
 @router.put("/{article_id}/verify")
 async def verify_article(
     article_id: str,
@@ -126,9 +153,17 @@ async def verify_article(
     if decision not in ["approve", "reject"]:
         raise HTTPException(status_code=400, detail="Invalid decision. Must be 'approve' or 'reject'")
 
+    # Cek jika artikel sudah diverifikasi sebelumnya
+    if article.status in ["approved", "rejected"]:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot change article status. Article has already been {article.status}"
+        )
+
     article.status = "approved" if decision == "approve" else "rejected"
     article.approved_id = current_user["id"]
     db.commit()
+    db.refresh(article)
 
     return {"message": f"Article has been {article.status}"}
 
