@@ -5,12 +5,16 @@ from auth.database import get_db
 from auth.models import Articles, Users
 import uuid
 from pydantic import BaseModel
-
+from sqlalchemy import func
 
 
 router = APIRouter(prefix="/articles", tags=["Articles"])
 
 class ArticleCreate(BaseModel):
+    title: str
+    content: str
+
+class ArticleUpdate(BaseModel):
     title: str
     content: str
 
@@ -44,6 +48,60 @@ async def create_article(
             "title": new_article.title,
             "status": new_article.status,
             "created_at": new_article.created_at
+        }
+    }
+
+@router.put("/{article_id}", response_model=dict)
+async def update_article(
+    article_id: str,
+    data: ArticleUpdate,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    roles = current_user.get("roles", [])
+
+    # Hanya admin_opd yang boleh update artikel
+    if "admin_opd" not in roles:
+        raise HTTPException(
+            status_code=403,
+            detail="Unauthorized: Only admin_opd can update articles"
+        )
+
+    # Cari artikel berdasarkan ID
+    article = db.query(Articles).filter(Articles.article_id == article_id).first()
+    if not article:
+        raise HTTPException(status_code=404, detail="Article not found")
+
+    # Pastikan artikel dibuat oleh user yang sedang login
+    if str(article.makes_by_id) != current_user["id"]:
+        raise HTTPException(
+            status_code=403,
+            detail="You can only edit your own articles"
+        )
+
+    # Jika sudah di-approve oleh admin_kota, tidak boleh diedit
+    if article.status in ["approved", "rejected"]:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot edit article that has been approved by admin_kota"
+        )
+
+    # Update field yang boleh diubah
+    article.title = data.title
+    article.content = data.content
+    article.updated_at = func.now()
+
+    db.commit()
+    db.refresh(article)
+
+    return {
+        "message": "Artikel berhasil diperbarui",
+        "data": {
+            "article_id": str(article.article_id),
+            "title": article.title,
+            "content": article.content,
+            "status": article.status,
+            "updated_at": article.updated_at
         }
     }
 
