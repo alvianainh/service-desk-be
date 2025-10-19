@@ -9,7 +9,6 @@ from datetime import datetime
 #     priority: str
 
 
-# Input schema untuk masyarakat (tanpa title & priority)
 class TicketCreateSchema(BaseModel):
     opd_id: UUID
     category_id: UUID
@@ -18,7 +17,6 @@ class TicketCreateSchema(BaseModel):
     file_url: Optional[str] = None
 
 
-# Output schema setelah tiket dibuat
 class TicketResponseSchema(BaseModel):
     message: str
     ticket_id: UUID
@@ -28,7 +26,26 @@ class TicketResponseSchema(BaseModel):
         orm_mode = True
 
 
-# Schema kategori (buat endpoint get categories)
+
+class TicketForSeksiSchema(BaseModel):
+    ticket_id: UUID
+    description: Optional[str]
+    priority: Optional[str]
+    status: str
+    created_at: datetime
+    updated_at: Optional[datetime]
+    closed_at: Optional[datetime]
+    opd_id: Optional[UUID]
+    category_id: Optional[UUID]
+    creates_id: Optional[UUID]
+    ticket_source: Optional[str]
+    additional_info: Optional[str]
+    request_type: Optional[str]
+
+    class Config:
+        orm_mode = True
+
+
 class TicketCategorySchema(BaseModel):
     category_id: UUID
     opd_id: UUID

@@ -21,7 +21,6 @@ from datetime import datetime
 #     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
 #     creates_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
 
-
 class Tickets(Base):
     __tablename__ = "tickets"
 
@@ -52,7 +51,6 @@ class Tickets(Base):
         ),
     )
 
-    # Relasi
     attachments = relationship("TicketAttachment", back_populates="ticket")
     category = relationship("TicketCategories", back_populates="tickets")
 

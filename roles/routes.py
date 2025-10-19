@@ -6,6 +6,7 @@ from auth.models import Users, Roles, UserRoles
 from .schemas import RoleSchema, AssignRoleSchema
 # from .models import Roles, UserRoles
 import uuid
+from datetime import datetime
 
 router = APIRouter()
 
@@ -104,13 +105,8 @@ async def assign_role(
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    user_roles = current_user.get("roles", [])
-
-    if "admin_kota" not in user_roles:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Unauthorized: Only admin_kota can assign roles"
-        )
+    if "admin_kota" not in current_user.get("roles", []):
+        raise HTTPException(status_code=403, detail="Unauthorized: Only admin_kota can assign roles")
 
     user = db.query(Users).filter(Users.id == data.user_id).first()
     role = db.query(Roles).filter(Roles.role_id == data.role_id).first()
@@ -120,27 +116,27 @@ async def assign_role(
     if not role:
         raise HTTPException(status_code=404, detail="Role not found")
 
-    existing_user_role = (
-        db.query(UserRoles)
-        .filter(UserRoles.user_id == user.id, UserRoles.role_id == role.role_id)
-        .first()
-    )
-    if existing_user_role:
-        raise HTTPException(status_code=400, detail="User already has this role")
+    db.query(UserRoles).filter(UserRoles.user_id == user.id).delete()
 
-    user_role = UserRoles(user_id=user.id, role_id=role.role_id)
-    db.add(user_role)
+    new_user_role = UserRoles(
+        user_id=user.id,
+        role_id=role.role_id,
+        assigned_at=datetime.utcnow() 
+    )
+    db.add(new_user_role)
     db.commit()
-    db.refresh(user_role)
+    db.refresh(new_user_role)
 
     return {
         "message": f"Role '{role.role_name}' successfully assigned to {user.email}",
         "data": {
             "user_id": str(user.id),
             "role_id": str(role.role_id),
-            "role_name": role.role_name
+            "role_name": role.role_name,
+            "assigned_at": new_user_role.assigned_at.isoformat()
         }
     }
+
 
 @router.put("/assign-role/{user_role_id}")
 async def update_assigned_role(

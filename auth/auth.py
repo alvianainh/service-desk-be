@@ -44,7 +44,6 @@ def create_access_token(user: Users, db: Session, expires_delta: timedelta = Non
     """
     roles = [r.role.role_name for r in user.user_roles]
 
-    # Ambil nama OPD langsung dari DB kalau belum termuat
     opd_name = None
     if user.opd_id:
         opd = db.query(Opd).filter(Opd.opd_id == user.opd_id).first()
@@ -87,6 +86,8 @@ async def get_current_user(
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         user_email = payload.get("sub") 
         role_names = payload.get("roles")
+        opd_id = payload.get("opd_id")
+        opd_name = payload.get("opd_name")
 
 
         if not user_email:
@@ -107,7 +108,9 @@ async def get_current_user(
         return {
             "id": str(user.id),
             "email": user.email,
-            "roles": role_names
+            "roles": role_names,
+            "opd_id": opd_id,  
+            "opd_name": opd_name
         }
 
     except JWTError:
