@@ -17,5 +17,4 @@ class Ticket(Base):
     updated_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
     closed_at = Column(TIMESTAMP(timezone=True), nullable=True)
 
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
-    creates_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
+    opd_id = Column(UUID(as_uuid=True), ForeignKey("opd.opd_id"), nullable=True)
