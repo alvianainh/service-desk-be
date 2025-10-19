@@ -5,8 +5,10 @@ from pipeline import router as auth_router
 from tickets import routes as ticket_routes
 from opd import routes as opd_routes
 from roles import routes as roles_routes
+from articles import routes as articles_routes
 
-app = FastAPI()
+app = FastAPI(
+    title="Service Desk API")
 
 app.add_middleware(
     CORSMiddleware,
@@ -30,6 +32,7 @@ app.include_router(roles_routes.router, tags=["Roles"])
 app.include_router(opd_routes.router)
 app.include_router(roles_routes.router, tags=["Roles"])
 app.include_router(ticket_routes.router, prefix="/api", tags=["Tickets"])
+app.include_router(articles_routes.router, tags=["Articles"])
 
 if __name__ == "__main__":
     import uvicorn
