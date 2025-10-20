@@ -6,7 +6,7 @@ from auth.models import Roles, UserRoles, Opd
 import auth.models as models
 from auth.auth import get_current_user
 
-router = APIRouter(prefix="/opd", tags=["OPD"])
+router = APIRouter(prefix="/opd", tags=["opd"])
 
 @router.post("/", response_model=schemas.OPDResponse)
 async def create_opd(

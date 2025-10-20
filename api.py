@@ -27,12 +27,12 @@ async def root():
     return {"message": "Server is running!"}
 
 
-app.include_router(auth_router)
-app.include_router(roles_routes.router, tags=["Roles"])
+app.include_router(auth_router, tags=["auth"])
+app.include_router(roles_routes.router, tags=["roles"])
 app.include_router(opd_routes.router)
-app.include_router(roles_routes.router, tags=["Roles"])
-app.include_router(ticket_routes.router, prefix="/api", tags=["Tickets"])
-app.include_router(articles_routes.router, tags=["Articles"])
+app.include_router(roles_routes.router, tags=["roles"])
+app.include_router(ticket_routes.router, prefix="/api", tags=["tickets"])
+app.include_router(articles_routes.router, tags=["articles"])
 
 if __name__ == "__main__":
     import uvicorn
