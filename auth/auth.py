@@ -36,6 +36,7 @@ def hash_password(password: str) -> str:
 # def verify_password(plain_password, hashed_password) -> bool:
 #     return pwd_context.verify(plain_password, hashed_password)
 
+
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     truncated = plain_password.encode("utf-8")[:72].decode("utf-8", "ignore")
     return pwd_context.verify(truncated, hashed_password)
