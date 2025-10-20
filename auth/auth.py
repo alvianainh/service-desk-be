@@ -30,7 +30,7 @@ security = HTTPBearer()
 #     return pwd_context.hash(password)
 
 def hash_password(password: str) -> str:
-    truncated = password.encode("utf-8")[:72].decode("utf-8", "ignore")
+    truncated = password.encode("utf-8")[:72]  # keep as bytes
     return pwd_context.hash(truncated)
 
 # def verify_password(plain_password, hashed_password) -> bool:
@@ -38,7 +38,7 @@ def hash_password(password: str) -> str:
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    truncated = plain_password.encode("utf-8")[:72].decode("utf-8", "ignore")
+    truncated = plain_password.encode("utf-8")[:72]  # keep as bytes
     return pwd_context.verify(truncated, hashed_password)
 
 # def create_access_token(data: dict, expires_delta: timedelta = None) -> str:
