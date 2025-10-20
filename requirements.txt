@@ -11,3 +11,4 @@ psycopg2-binary
 pydantic[email]
 supabase
 python-jose[cryptography]
+python-multipart
