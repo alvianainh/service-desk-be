@@ -1,8 +1,9 @@
 fastapi
 httpx
 uvicorn
-passlib[bcrypt]
-databases
+passlib[bcrypt]==1.7.5
+bcrypt==4.1.0
+databases[postgresql]==0.7.2
 asyncpg
 sqlalchemy
 python-dotenv
