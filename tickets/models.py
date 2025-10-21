@@ -51,6 +51,7 @@ class Tickets(Base):
         ),
     )
 
+    opd = relationship("Opd", backref="tickets")
     attachments = relationship("TicketAttachment", back_populates="ticket")
     category = relationship("TicketCategories", back_populates="tickets")
 
