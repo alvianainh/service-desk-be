@@ -1,8 +1,9 @@
 fastapi
 httpx
 uvicorn
-passlib[bcrypt]
-databases
+passlib[bcrypt]==1.7.4
+bcrypt==3.2.0
+databases[postgresql]==0.9.0
 asyncpg
 sqlalchemy
 python-dotenv
@@ -10,3 +11,5 @@ PyJWT
 psycopg2-binary
 pydantic[email]
 supabase
+python-jose[cryptography]
+python-multipart

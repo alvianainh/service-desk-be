@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from sqlalchemy import func
 
 
-router = APIRouter(prefix="/articles", tags=["Articles"])
+router = APIRouter(prefix="/articles", tags=["articles"])
 
 class ArticleCreate(BaseModel):
     title: str
