@@ -43,4 +43,53 @@ class Tickets(Base):
     ticket_source = Column(String, nullable=False, default="masyarakat")
     request_type = Column(String, nullable=True)
 
-    opd_id = Column(UUID(as_uuid=True), ForeignKey("opd.opd_id"), nullable=True)
+    __table_args__ = (
+        CheckConstraint("status IN ('Open', 'In Progress', 'Resolved', 'Closed', 'On Hold')"),
+        CheckConstraint("ticket_source IN ('masyarakat', 'pegawai')"),
+        CheckConstraint(
+            "request_type IS NULL OR request_type IN ('reset_password', 'permohonan_akses', 'permintaan_perangkat')"
+        ),
+    )
+
+    opd = relationship("Opd", backref="tickets")
+    attachments = relationship("TicketAttachment", back_populates="ticket")
+    category = relationship("TicketCategories", back_populates="tickets")
+
+
+class TicketAttachment(Base):
+    __tablename__ = "ticket_attachment"
+
+    attachment_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    uploaded_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    file_path = Column(String, nullable=False)
+    has_id = Column(UUID(as_uuid=True), ForeignKey("tickets.ticket_id"))
+
+    ticket = relationship("Tickets", back_populates="attachments")
+
+
+class TicketCategories(Base):
+    __tablename__ = "ticket_categories"
+
+    category_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    opd_id = Column(UUID(as_uuid=True), ForeignKey("opd.opd_id"))
+    category_name = Column(Text, nullable=False)
+    description = Column(Text)
+
+    tickets = relationship("Tickets", back_populates="category")
+
+
+class TicketUpdates(Base):
+    __tablename__ = "ticket_updates"
+
+    update_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    status_change = Column(String(50), nullable=False)
+    notes = Column(Text, nullable=True)
+    update_time = Column(DateTime, nullable=False, default=datetime.utcnow)
+    
+    has_calendar_id = Column(UUID(as_uuid=True), ForeignKey("opd.opd_id", ondelete="CASCADE"), nullable=True)
+    makes_by_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
+    ticket_id = Column(UUID(as_uuid=True), ForeignKey("tickets.ticket_id", ondelete="CASCADE"), nullable=True)
+
+    opd = relationship("Opd", backref="ticket_updates", foreign_keys=[has_calendar_id])
+    user = relationship("Users", backref="ticket_updates", foreign_keys=[makes_by_id])
+    ticket = relationship("Tickets", backref="updates", foreign_keys=[ticket_id])
