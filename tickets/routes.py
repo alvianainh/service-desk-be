@@ -8,13 +8,13 @@ from auth.auth import get_current_user, get_user_by_email
 from tickets import models, schemas
 from tickets.models import Tickets, TicketAttachment, TicketCategories, TicketUpdates
 from tickets.schemas import TicketCreateSchema, TicketResponseSchema, TicketCategorySchema, TicketForSeksiSchema, TicketTrackResponse
-from opd.models import OPD
-
 import uuid
+from auth.models import Opd
 import os
 from supabase import create_client, Client
 from sqlalchemy import text
 import mimetypes
+from uuid import UUID
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -260,14 +260,22 @@ async def verify_ticket_seksi(
         "priority": ticket.priority
     }
 
-
 # Tracking tiket
-@router.get("/track/{ticket_id}", tags=["tickets"], summary="Track Ticket Status", response_model=TicketTrackResponse)
-async def track_ticket(ticket_id: UUID, db: Session = Depends(get_db)):
+@router.get(
+    "/track/{ticket_id}",
+    tags=["tickets"],
+    summary="Track Ticket Status",
+    response_model=schemas.TicketTrackResponse
+)
+async def track_ticket(
+    ticket_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)  # ⬅️ tambahkan ini
+):
     ticket = (
         db.query(Tickets)
         .join(TicketCategories, Tickets.category_id == TicketCategories.category_id)
-        .join(OPD, Tickets.opd_id == OPD.opd_id)
+        .join(Opd, Tickets.opd_id == Opd.opd_id)
         .filter(Tickets.ticket_id == ticket_id)
         .first()
     )

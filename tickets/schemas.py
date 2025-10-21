@@ -55,7 +55,6 @@ class TicketCategorySchema(BaseModel):
     class Config:
         orm_mode = True
 
-
 class TicketTrackResponse(BaseModel):
     ticket_id: UUID 
     status: str 
