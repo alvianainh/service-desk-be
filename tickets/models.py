@@ -43,4 +43,5 @@ class Tickets(Base):
     ticket_source = Column(String, nullable=False, default="masyarakat")
     request_type = Column(String, nullable=True)
 
-    opd_id = Column(UUID(as_uuid=True), ForeignKey("opd.opd_id"), nullable=True)
+    opd = relationship("OPD", backref="tickets")
+    category = relationship("TicketCategories", backref="tickets")

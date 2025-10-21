@@ -7,7 +7,9 @@ from auth.database import get_db
 from auth.auth import get_current_user, get_user_by_email
 from tickets import models, schemas
 from tickets.models import Tickets, TicketAttachment, TicketCategories, TicketUpdates
-from tickets.schemas import TicketCreateSchema, TicketResponseSchema, TicketCategorySchema, TicketForSeksiSchema
+from tickets.schemas import TicketCreateSchema, TicketResponseSchema, TicketCategorySchema, TicketForSeksiSchema, TicketTrackResponse
+from opd.models import OPD
+
 import uuid
 import os
 from supabase import create_client, Client
@@ -257,3 +259,25 @@ async def verify_ticket_seksi(
         "status": ticket.status,
         "priority": ticket.priority
     }
+
+
+# Tracking tiket
+@router.get("/track/{ticket_id}", tags=["tickets"], summary="Track Ticket Status", response_model=TicketTrackResponse)
+async def track_ticket(ticket_id: UUID, db: Session = Depends(get_db)):
+    ticket = (
+        db.query(Tickets)
+        .join(TicketCategories, Tickets.category_id == TicketCategories.category_id)
+        .join(OPD, Tickets.opd_id == OPD.opd_id)
+        .filter(Tickets.ticket_id == ticket_id)
+        .first()
+    )
+
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+
+    return schemas.TicketTrackResponse(
+        ticket_id=ticket.ticket_id,
+        status=ticket.status,
+        jenis_laporan=ticket.category.category_name if ticket.category else None,
+        opd=ticket.opd.opd_name if ticket.opd else None,
+    )
