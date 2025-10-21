@@ -261,8 +261,17 @@ async def verify_ticket_seksi(
     }
 
 # Tracking tiket
-@router.get("/track/{ticket_id}", tags=["tickets"], summary="Track Ticket Status", response_model=TicketTrackResponse)
-async def track_ticket(ticket_id: UUID, db: Session = Depends(get_db)):
+@router.get(
+    "/track/{ticket_id}",
+    tags=["tickets"],
+    summary="Track Ticket Status",
+    response_model=schemas.TicketTrackResponse
+)
+async def track_ticket(
+    ticket_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)  # ⬅️ tambahkan ini
+):
     ticket = (
         db.query(Tickets)
         .join(TicketCategories, Tickets.category_id == TicketCategories.category_id)
