@@ -56,6 +56,7 @@ class Users(Base):
     opd_id = Column(UUID, ForeignKey("opd.opd_id"), nullable=True)
     birth_date = Column(Date)
     address = Column(String)
+    profile_url = Column(String)
     no_employee = Column(String)
     jabatan = Column(String)
     division = Column(String)
@@ -72,7 +73,6 @@ class Opd(Base):
     opd_name = Column(String, unique=True, nullable=False)
     description = Column(Text)
 
-    # relasi ke Users
     users = relationship("Users", back_populates="opd")
 
 class Articles(Base):
@@ -81,7 +81,7 @@ class Articles(Base):
     article_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     title = Column(String, nullable=False)
     content = Column(Text, nullable=False)
-    status = Column(String, default="draft")  # draft, pending_review, approved, rejected
+    status = Column(String, default="draft")  
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
     updated_at = Column(TIMESTAMP(timezone=True), server_default=func.now(), onupdate=func.now())
     makes_by_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
