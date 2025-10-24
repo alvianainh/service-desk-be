@@ -48,29 +48,30 @@ async def create_public_report(
     if not opd_exists or not category_exists:
         raise HTTPException(status_code=404, detail="Invalid OPD or category ID")
 
+    action_lower = action.lower()
+    # Tentukan status berdasarkan action
+    action_lower = action.lower()
+    if action_lower == "draft":
+        status_val = "Draft"
+        stage_val = "user_draft"
+    elif action_lower == "submit":
+        status_val = "Open"
+        stage_val = "submitted"
+    else:
+        raise HTTPException(status_code=400, detail="Aksi tidak valid. Gunakan 'draft' atau 'submit'.")
+
     new_ticket = Tickets(
         ticket_id=uuid.uuid4(),
         description=description,
-        status="Open",
+        status=status_val,
         opd_id=UUID(opd_id),
         category_id=UUID(category_id),
         creates_id=UUID(current_user["id"]),
         ticket_source="masyarakat",
         additional_info=additional_info,
+        ticket_stage=stage_val,
         created_at=datetime.utcnow()
     )
-
-    # Tentukan status berdasarkan action
-    if action == "draft":
-        # Draft masyarakat (belum dikirim)
-        new_ticket.status = "Draft"
-        new_ticket.ticket_stage = "user_draft"
-    elif action == "submit":
-        # Laporan dikirim, otomatis muncul di dashboard seksi
-        new_ticket.status = "Open"
-        new_ticket.ticket_stage = "submitted"
-    else:
-        raise HTTPException(status_code=400, detail="Aksi tidak valid. Gunakan 'draft' atau 'submit'.")
 
     db.add(new_ticket)
     db.commit()
@@ -112,11 +113,9 @@ async def create_public_report(
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"File upload failed: {str(e)}")
 
-    # Respon
-    if action == "draft":
-        message = "Laporan disimpan sebagai draft. Anda dapat mengirimkannya nanti."
-    else:
-        message = "Laporan berhasil dikirim dan sedang menunggu verifikasi dari seksi."
+    # Response
+    message = "Laporan disimpan sebagai draft. Anda dapat mengirimkannya nanti." if action_lower == "draft" else \
+              "Laporan berhasil dikirim dan sedang menunggu verifikasi dari seksi."
 
     return {
         "message": message,
