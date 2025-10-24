@@ -260,6 +260,8 @@ async def verify_ticket_seksi(
         "priority": ticket.priority
     }
 
+
+
 # Tracking tiket
 @router.get(
     "/track/{ticket_id}",
@@ -270,7 +272,7 @@ async def verify_ticket_seksi(
 async def track_ticket(
     ticket_id: UUID,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)  # ⬅️ tambahkan ini
+    current_user: dict = Depends(get_current_user) 
 ):
     ticket = (
         db.query(Tickets)
