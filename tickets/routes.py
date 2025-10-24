@@ -37,7 +37,6 @@ async def create_public_report(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
-
     roles = current_user.get("roles", [])
     if "masyarakat" not in roles:
         raise HTTPException(status_code=403, detail="Unauthorized: Only masyarakat can create reports")
@@ -49,14 +48,12 @@ async def create_public_report(
         raise HTTPException(status_code=404, detail="Invalid OPD or category ID")
 
     action_lower = action.lower()
-    # Tentukan status berdasarkan action
-    action_lower = action.lower()
     if action_lower == "draft":
         status_val = "Draft"
         stage_val = "user_draft"
     elif action_lower == "submit":
         status_val = "Open"
-        stage_val = "submitted"
+        stage_val = "user_submit"
     else:
         raise HTTPException(status_code=400, detail="Aksi tidak valid. Gunakan 'draft' atau 'submit'.")
 
@@ -84,7 +81,6 @@ async def create_public_report(
             file_name = f"{new_ticket.ticket_id}{file_ext}"
 
             content_type = mimetypes.guess_type(file.filename)[0] or "application/octet-stream"
-
             file_bytes = await file.read()
 
             res = supabase.storage.from_("docs").upload(
@@ -99,7 +95,8 @@ async def create_public_report(
                 raise Exception(res["error"])
 
             file_url = supabase.storage.from_("docs").get_public_url(file_name)
-            file_url = file_url if isinstance(file_url, str) else None
+            if not isinstance(file_url, str):
+                file_url = None
 
             new_attachment = TicketAttachment(
                 attachment_id=uuid.uuid4(),
@@ -113,16 +110,100 @@ async def create_public_report(
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"File upload failed: {str(e)}")
 
-    # Response
-    message = "Laporan disimpan sebagai draft. Anda dapat mengirimkannya nanti." if action_lower == "draft" else \
-              "Laporan berhasil dikirim dan sedang menunggu verifikasi dari seksi."
+    message = (
+        "Laporan disimpan sebagai draft. Anda dapat mengirimkannya nanti."
+        if action_lower == "draft"
+        else "Laporan berhasil dikirim dan sedang menunggu verifikasi dari seksi."
+    )
 
     return {
         "message": message,
         "ticket_id": str(new_ticket.ticket_id),
         "status": new_ticket.status,
+        "ticket_stage": new_ticket.ticket_stage,
         "file_url": file_url
     }
+
+
+@router.get("/pelaporan-online/draft")
+async def get_user_drafts(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    roles = current_user.get("roles", [])
+    if "masyarakat" not in roles:
+        raise HTTPException(status_code=403, detail="Unauthorized: Only masyarakat can access drafts")
+
+    user_id = current_user["id"]
+
+    drafts = db.execute(
+        text("""
+            SELECT ticket_id, description, additional_info, opd_id, category_id, status, ticket_stage, created_at
+            FROM tickets
+            WHERE creates_id = :user_id
+              AND status = 'Draft'
+              AND ticket_stage = 'user_draft'
+            ORDER BY created_at DESC
+        """),
+        {"user_id": user_id}
+    ).mappings().all()
+
+    return {"drafts": [dict(row) for row in drafts]}
+
+
+
+@router.put("/pelaporan-online/submit/{ticket_id}")
+async def submit_draft_ticket(
+    ticket_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    roles = current_user.get("roles", [])
+    if "masyarakat" not in roles:
+        raise HTTPException(status_code=403, detail="Unauthorized: Only masyarakat can submit tickets")
+
+    ticket = db.execute(
+        text("""
+            SELECT * FROM tickets
+            WHERE ticket_id = :ticket_id
+              AND creates_id = :user_id
+        """),
+        {"ticket_id": str(ticket_id), "user_id": current_user["id"]}
+    ).mappings().first()
+
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Tiket tidak ditemukan atau bukan milik Anda")
+
+    if ticket["status"] != "Draft" or ticket["ticket_stage"] != "user_draft":
+        raise HTTPException(status_code=400, detail="Tiket ini sudah dikirim atau bukan draft")
+
+    missing_fields = []
+    if not ticket["description"]:
+        missing_fields.append("description")
+    if not ticket["category_id"]:
+        missing_fields.append("category_id")
+    if not ticket["opd_id"]:
+        missing_fields.append("opd_id")
+
+    if missing_fields:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Tiket belum lengkap. Harap isi kolom: {', '.join(missing_fields)}"
+        )
+
+    db.execute(
+        text("""
+            UPDATE tickets
+            SET status = 'Open',
+                ticket_stage = 'user_submit',
+                updated_at = NOW()
+            WHERE ticket_id = :ticket_id
+        """),
+        {"ticket_id": str(ticket_id)}
+    )
+    db.commit()
+
+    return {"message": "Tiket berhasil dikirim dari draft", "ticket_id": str(ticket_id)}
 
 
 @router.get("/ticket-categories", response_model=list[TicketCategorySchema])
@@ -217,9 +298,16 @@ async def get_tickets_for_seksi(
     if not opd_id:
         raise HTTPException(status_code=400, detail="Invalid token: opd_id missing")
 
-    tickets = db.query(Tickets).filter(Tickets.opd_id == opd_id).all()
-    return tickets
+    tickets = (
+        db.query(Tickets)
+        .filter(
+            Tickets.opd_id == opd_id,
+            Tickets.status != "Draft"
+        )
+        .all()
+    )
 
+    return tickets
 
 @router.get("/tickets/seksi/{ticket_id}", response_model=TicketForSeksiSchema)
 async def get_ticket_detail_seksi(
