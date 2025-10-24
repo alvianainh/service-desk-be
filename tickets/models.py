@@ -41,7 +41,7 @@ class Tickets(Base):
     category_id = Column(UUID(as_uuid=True), ForeignKey("ticket_categories.category_id"), nullable=True)
     additional_info = Column(Text, nullable=True)
     ticket_source = Column(String, nullable=False, default="masyarakat")
-    request_type = Column(String, nullable=True),
+    request_type = Column(String, nullable=True)
     ticket_stage = Column(String(50), nullable=True, default="user_draft")  
 
 

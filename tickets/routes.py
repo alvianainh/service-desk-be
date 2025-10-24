@@ -51,9 +51,10 @@ async def create_public_report(
     new_ticket = Tickets(
         ticket_id=uuid.uuid4(),
         description=description,
-        opd_id=opd_id,
-        category_id=category_id,
-        creates_id=current_user["id"],
+        status="Open",
+        opd_id=UUID(opd_id),
+        category_id=UUID(category_id),
+        creates_id=UUID(current_user["id"]),
         ticket_source="masyarakat",
         additional_info=additional_info,
         created_at=datetime.utcnow()
@@ -97,6 +98,7 @@ async def create_public_report(
                 raise Exception(res["error"])
 
             file_url = supabase.storage.from_("docs").get_public_url(file_name)
+            file_url = file_url if isinstance(file_url, str) else None
 
             new_attachment = TicketAttachment(
                 attachment_id=uuid.uuid4(),
