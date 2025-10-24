@@ -223,7 +223,7 @@ async def get_ticket_categories(
 
 
 @router.post("/pengajuan-pelayanan")
-async def create_ticket_pegawai(
+async def create_ticket_pegawai_JANGAN_DIPAKE_DULU(
     request_type: str = Form(...),             
     description: str = Form(...),
     additional_info: str = Form(None),
