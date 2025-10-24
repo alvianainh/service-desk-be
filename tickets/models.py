@@ -41,14 +41,20 @@ class Tickets(Base):
     category_id = Column(UUID(as_uuid=True), ForeignKey("ticket_categories.category_id"), nullable=True)
     additional_info = Column(Text, nullable=True)
     ticket_source = Column(String, nullable=False, default="masyarakat")
-    request_type = Column(String, nullable=True)
+    request_type = Column(String, nullable=True),
+    ticket_stage = Column(String(50), nullable=True, default="user_draft")  
+
 
     __table_args__ = (
-        CheckConstraint("status IN ('Open', 'In Progress', 'Resolved', 'Closed', 'On Hold')"),
+        CheckConstraint("status IN ('Draft', 'Open', 'In Progress', 'Resolved', 'Closed', 'On Hold')"),
         CheckConstraint("ticket_source IN ('masyarakat', 'pegawai')"),
         CheckConstraint(
             "request_type IS NULL OR request_type IN ('reset_password', 'permohonan_akses', 'permintaan_perangkat')"
         ),
+        CheckConstraint(
+             "ticket_stage IN ('user_draft', 'submitted', 'seksi_draft', 'seksi_verified', 'seksi_rejected', 'pending', 'revisi')"
+)
+
     )
 
     opd = relationship("Opd", backref="tickets")

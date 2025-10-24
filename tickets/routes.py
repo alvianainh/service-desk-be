@@ -32,6 +32,7 @@ async def create_public_report(
     category_id: str = Form(...),
     description: str = Form(...),
     additional_info: str = Form(None),
+    action: str = Form("submit"),
     file: UploadFile = File(None),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
@@ -50,7 +51,6 @@ async def create_public_report(
     new_ticket = Tickets(
         ticket_id=uuid.uuid4(),
         description=description,
-        status="Open",
         opd_id=opd_id,
         category_id=category_id,
         creates_id=current_user["id"],
@@ -58,6 +58,19 @@ async def create_public_report(
         additional_info=additional_info,
         created_at=datetime.utcnow()
     )
+
+    # Tentukan status berdasarkan action
+    if action == "draft":
+        # Draft masyarakat (belum dikirim)
+        new_ticket.status = "Draft"
+        new_ticket.ticket_stage = "user_draft"
+    elif action == "submit":
+        # Laporan dikirim, otomatis muncul di dashboard seksi
+        new_ticket.status = "Open"
+        new_ticket.ticket_stage = "submitted"
+    else:
+        raise HTTPException(status_code=400, detail="Aksi tidak valid. Gunakan 'draft' atau 'submit'.")
+
     db.add(new_ticket)
     db.commit()
     db.refresh(new_ticket)
@@ -97,8 +110,14 @@ async def create_public_report(
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"File upload failed: {str(e)}")
 
+    # Respon
+    if action == "draft":
+        message = "Laporan disimpan sebagai draft. Anda dapat mengirimkannya nanti."
+    else:
+        message = "Laporan berhasil dikirim dan sedang menunggu verifikasi dari seksi."
+
     return {
-        "message": "Laporan berhasil dikirim",
+        "message": message,
         "ticket_id": str(new_ticket.ticket_id),
         "status": new_ticket.status,
         "file_url": file_url
@@ -110,7 +129,6 @@ async def get_ticket_categories(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
-
 
     opd_id = current_user.get("opd_id")
 
@@ -260,6 +278,8 @@ async def verify_ticket_seksi(
         "priority": ticket.priority
     }
 
+
+
 # Tracking tiket
 @router.get(
     "/track/{ticket_id}",
@@ -270,7 +290,7 @@ async def verify_ticket_seksi(
 async def track_ticket(
     ticket_id: UUID,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)  # ⬅️ tambahkan ini
+    current_user: dict = Depends(get_current_user) 
 ):
     ticket = (
         db.query(Tickets)

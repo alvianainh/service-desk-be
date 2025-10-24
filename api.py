@@ -37,4 +37,3 @@ app.include_router(articles_routes.router, tags=["articles"])
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("api:app", host="0.0.0.0", port=9000, reload=False)
-
