@@ -6,6 +6,7 @@ from tickets import routes as ticket_routes
 from opd import routes as opd_routes
 from roles import routes as roles_routes
 from articles import routes as articles_routes
+from chat import routes as chat_routes
 
 app = FastAPI(
     title="Service Desk API")
@@ -33,6 +34,7 @@ app.include_router(opd_routes.router)
 app.include_router(roles_routes.router, tags=["roles"])
 app.include_router(ticket_routes.router, prefix="/api", tags=["tickets"])
 app.include_router(articles_routes.router, tags=["articles"])
+app.include_router(chat_routes.router)
 
 if __name__ == "__main__":
     import uvicorn
