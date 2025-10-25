@@ -26,5 +26,8 @@ class ChatMessage(Base):
     message = Column(Text, nullable=False)
     sent_at = Column(DateTime, default=datetime.utcnow)
     is_read = Column(Boolean, default=False)
+    file_url = Column(String, nullable=True)
+    file_type = Column(String(50), nullable=True)
+    role = Column(String(50), nullable=False, default="user")
 
     chat = relationship("Chat", back_populates="messages")
