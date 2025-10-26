@@ -368,6 +368,158 @@ async def verify_ticket_seksi(
     }
 
 
+#Bidang
+@router.get("/tickets/bidang", response_model=list[TicketForSeksiSchema])
+async def get_tickets_for_bidang(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    roles = current_user.get("roles", [])
+    if "bidang" not in roles:
+        raise HTTPException(status_code=403, detail="Access denied: only bidang can view this data")
+
+    opd_id = current_user.get("opd_id")
+    if not opd_id:
+        raise HTTPException(status_code=400, detail="Invalid token: opd_id missing")
+
+    # Hanya tiket yang sudah diverifikasi seksi
+    tickets = (
+        db.query(Tickets)
+        .filter(
+            Tickets.opd_id == opd_id,
+            Tickets.status == "Verified by Seksi"
+        )
+        .all()
+    )
+
+    return tickets
+
+@router.get("/tickets/bidang/{ticket_id}", response_model=TicketForSeksiSchema)
+async def get_ticket_detail_bidang(
+    ticket_id: str,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    if "bidang" not in current_user.get("roles", []):
+        raise HTTPException(status_code=403, detail="Access denied: only bidang can view this data")
+
+    opd_id = current_user.get("opd_id")
+    ticket = db.query(Tickets).filter(
+        Tickets.ticket_id == ticket_id, 
+        Tickets.opd_id == opd_id,
+        Tickets.status == "Verified by Seksi"
+        ).first()
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found or access denied")
+
+    return ticket
+
+@router.post("/tickets/bidang/verify")
+async def create_bidang_verification(
+    ticket_id: str = Form(...),
+    priority: str = Form(None),
+    is_revisi: bool = Form(False),
+    is_reject: bool = Form(False),
+    action: str = Form("submit"),  # draft / submit
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    roles = current_user.get("roles", [])
+    if "bidang" not in roles:
+        raise HTTPException(status_code=403, detail="Unauthorized: Only bidang can verify tickets")
+
+    # Ambil tiket yang sudah diverifikasi seksi
+    ticket = db.query(Tickets).filter(
+        Tickets.ticket_id == ticket_id,
+        Tickets.status == "Verified by Seksi",
+        Tickets.opd_id == current_user.get("opd_id")
+    ).first()
+
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found or not eligible for bidang verification")
+
+    action_lower = action.lower()
+    if action_lower == "draft":
+        status_val = "Draft"
+    elif action_lower == "submit":
+        status_val = "Verified by Bidang"
+    else:
+        raise HTTPException(status_code=400, detail="Invalid action. Use 'draft' or 'submit'.")
+
+    ticket.priority = priority if priority else ticket.priority
+    ticket.status = status_val
+    ticket.updated_at = datetime.utcnow()
+    ticket.verified_id = UUID(current_user["id"]) 
+
+    # Simpan revisi/reject checkbox
+    ticket.is_revisi = is_revisi
+    ticket.is_reject = is_reject
+
+    db.add(ticket)
+    db.commit()
+    db.refresh(ticket)
+
+    message = (
+        "Draft verifikasi bidang berhasil disimpan."
+        if action_lower == "draft"
+        else "Tiket berhasil diverifikasi oleh bidang dan dikirim kembali ke seksi."
+    )
+
+    return {
+        "message": message,
+        "ticket_id": str(ticket.ticket_id),
+        "status": ticket.status,
+        "priority": ticket.priority,
+        "is_revisi": ticket.is_revisi,
+        "is_reject": ticket.is_reject
+    }
+
+# Ambil semua draft bidang
+@router.get("/tickets/bidang/draft")
+async def get_bidang_drafts(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    if "bidang" not in current_user.get("roles", []):
+        raise HTTPException(status_code=403, detail="Unauthorized: Only bidang can access drafts")
+
+    opd_id = current_user.get("opd_id")
+    drafts = db.query(Tickets).filter(
+        Tickets.opd_id == opd_id,
+        Tickets.status == "Draft",
+        Tickets.verified_id == current_user["id"]
+    ).order_by(Tickets.updated_at.desc()).all()
+
+    return drafts
+
+
+# Submit draft Bidang ke Seksi
+@router.put("/tickets/bidang/submit/{ticket_id}")
+async def submit_bidang_draft(
+    ticket_id: str,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    if "bidang" not in current_user.get("roles", []):
+        raise HTTPException(status_code=403, detail="Unauthorized: Only bidang can submit tickets")
+
+    ticket = db.query(Tickets).filter(
+        Tickets.ticket_id == ticket_id,
+        Tickets.verified_id == current_user["id"],
+        Tickets.status == "Draft"
+    ).first()
+
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Draft not found or already submitted")
+
+    # Kirim ke seksi
+    ticket.status = "Verified by Bidang"
+    ticket.updated_at = datetime.utcnow()
+    db.add(ticket)
+    db.commit()
+    db.refresh(ticket)
+
+    return {"message": "Draft bidang berhasil dikirim ke seksi", "ticket_id": str(ticket.ticket_id)}
 
 # Tracking tiket
 @router.get(

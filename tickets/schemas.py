@@ -46,6 +46,30 @@ class TicketForSeksiSchema(BaseModel):
         orm_mode = True
 
 
+class TicketBidangVerifySchema(BaseModel):
+    ticket_id: UUID
+    priority: Optional[str]
+    notes: Optional[str] = None
+    is_revisi: Optional[bool] = False
+    is_reject: Optional[bool] = False
+    status: str  # Draft / Verified by Bidang
+
+    class Config:
+        orm_mode = True
+
+class TicketBidangSubmitResponse(BaseModel):
+    message: str
+    ticket_id: UUID
+    status: str
+    priority: Optional[str]
+    is_revisi: Optional[bool] = False
+    is_reject: Optional[bool] = False
+
+    class Config:
+        orm_mode = True
+
+
+
 class TicketCategorySchema(BaseModel):
     category_id: UUID
     opd_id: UUID
