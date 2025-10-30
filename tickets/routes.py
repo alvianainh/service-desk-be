@@ -31,7 +31,7 @@ async def create_public_report(
     opd_id: str = Form(...),
     category_id: str = Form(...),
     description: str = Form(...),
-    additional_info: str = Form(None),
+    # additional_info: str = Form(None),
     action: str = Form("submit"),
     file: UploadFile = File(None),
     db: Session = Depends(get_db),
@@ -65,7 +65,7 @@ async def create_public_report(
         category_id=UUID(category_id),
         creates_id=UUID(current_user["id"]),
         ticket_source="masyarakat",
-        additional_info=additional_info,
+        # additional_info=additional_info,
         ticket_stage=stage_val,
         created_at=datetime.utcnow()
     )
