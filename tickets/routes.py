@@ -31,31 +31,36 @@ async def create_public_report(
     opd_id: str = Form(...),
     category_id: str = Form(...),
     description: str = Form(...),
-    # additional_info: str = Form(None),
     action: str = Form("submit"),
     file: UploadFile = File(None),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
     roles = current_user.get("roles", [])
-    if "masyarakat" not in roles:
-        raise HTTPException(status_code=403, detail="Unauthorized: Only masyarakat can create reports")
+
+    allowed_roles = {"masyarakat", "pegawai"}
+    if not any(role in allowed_roles for role in roles):
+        raise HTTPException(status_code=403, detail="Unauthorized: hanya masyarakat atau pegawai yang dapat membuat laporan")
 
     opd_exists = db.execute(text("SELECT 1 FROM opd WHERE opd_id = :id"), {"id": opd_id}).first()
     category_exists = db.execute(text("SELECT 1 FROM ticket_categories WHERE category_id = :id"), {"id": category_id}).first()
 
     if not opd_exists or not category_exists:
-        raise HTTPException(status_code=404, detail="Invalid OPD or category ID")
+        raise HTTPException(status_code=404, detail="Invalid OPD atau kategori ID")
 
     action_lower = action.lower()
-    if action_lower == "draft":
-        status_val = "Draft"
-        stage_val = "user_draft"
-    elif action_lower == "submit":
+    if "masyarakat" in roles:
+        if action_lower == "draft":
+            status_val = "Draft"
+            stage_val = "user_draft"
+        elif action_lower == "submit":
+            status_val = "Open"
+            stage_val = "user_submit"
+        else:
+            raise HTTPException(status_code=400, detail="Aksi tidak valid. Gunakan 'draft' atau 'submit'.")
+    elif "pegawai" in roles:
         status_val = "Open"
         stage_val = "user_submit"
-    else:
-        raise HTTPException(status_code=400, detail="Aksi tidak valid. Gunakan 'draft' atau 'submit'.")
 
     new_ticket = Tickets(
         ticket_id=uuid.uuid4(),
@@ -64,8 +69,7 @@ async def create_public_report(
         opd_id=UUID(opd_id),
         category_id=UUID(category_id),
         creates_id=UUID(current_user["id"]),
-        ticket_source="masyarakat",
-        # additional_info=additional_info,
+        ticket_source="pegawai" if "pegawai" in roles else "masyarakat",
         ticket_stage=stage_val,
         created_at=datetime.utcnow()
     )
@@ -110,11 +114,12 @@ async def create_public_report(
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"File upload failed: {str(e)}")
 
-    message = (
-        "Laporan disimpan sebagai draft. Anda dapat mengirimkannya nanti."
-        if action_lower == "draft"
-        else "Laporan berhasil dikirim dan sedang menunggu verifikasi dari seksi."
-    )
+    if "masyarakat" in roles and action_lower == "draft":
+        message = "Laporan disimpan sebagai draft. Anda dapat mengirimkannya nanti."
+    elif "masyarakat" in roles and action_lower == "submit":
+        message = "Laporan berhasil dikirim dan menunggu verifikasi dari seksi."
+    else:
+        message = "Laporan pegawai berhasil dibuat dan dikirim."
 
     return {
         "message": message,

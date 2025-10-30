@@ -72,6 +72,7 @@ class Opd(Base):
     opd_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     opd_name = Column(String, unique=True, nullable=False)
     description = Column(Text)
+    file_path = Column(Text, nullable=True)
 
     users = relationship("Users", back_populates="opd")
 
