@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status, File, UploadFile, Form
 from sqlalchemy.orm import Session
+from typing import Optional
 from auth import database
 from uuid import uuid4
 import os
@@ -93,25 +94,68 @@ async def get_all_opd(
 @router.put("/{opd_id}", response_model=schemas.OPDResponse)
 async def update_opd(
     opd_id: str,
-    data: schemas.OPDCreate,
+    opd_name: Optional[str] = Form(None),
+    description: Optional[str] = Form(None),
+    file: UploadFile = File(None),
     db: Session = Depends(database.get_db),
     current_user: dict = Depends(get_current_user)
 ):
     if "admin_kota" not in current_user.get("roles", []):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You do not have permission to update OPD."
-        )
+        raise HTTPException(status_code=403, detail="You do not have permission to update OPD.")
 
     opd = db.query(models.Opd).filter(models.Opd.opd_id == opd_id).first()
     if not opd:
         raise HTTPException(status_code=404, detail="OPD not found")
 
-    opd.opd_name = data.opd_name
-    opd.description = data.description
+    if opd_name and opd_name != opd.opd_name:
+        existing_opd = (
+            db.query(models.Opd)
+            .filter(models.Opd.opd_name == opd_name, models.Opd.opd_id != opd_id)
+            .first()
+        )
+        if existing_opd:
+            raise HTTPException(status_code=400, detail="OPD name already exists")
+
+    file_url = opd.file_path
+    if file:
+        try:
+            if opd.file_path:
+                old_filename = opd.file_path.split("/")[-1]
+                supabase.storage.from_("opd_icon").remove([old_filename])
+
+            file_ext = os.path.splitext(file.filename)[1]
+            file_name = f"{uuid4()}{file_ext}"
+
+            content_type = mimetypes.guess_type(file.filename)[0] or "application/octet-stream"
+            file_bytes = await file.read()
+
+            res = supabase.storage.from_("opd_icon").upload(
+                file_name,
+                file_bytes,
+                {"content-type": content_type}
+            )
+
+            if hasattr(res, "error") and res.error:
+                raise Exception(res.error.message)
+            if isinstance(res, dict) and res.get("error"):
+                raise Exception(res["error"])
+
+            file_url = supabase.storage.from_("opd_icon").get_public_url(file_name)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Icon upload failed: {str(e)}")
+
+    if opd_name is not None:
+        opd.opd_name = opd_name
+    if description is not None:
+        opd.description = description
+    if file is not None:
+        opd.file_path = file_url
+
     db.commit()
     db.refresh(opd)
     return opd
+
+
 
 @router.delete("/{opd_id}", status_code=status.HTTP_200_OK)
 async def delete_opd(
