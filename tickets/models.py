@@ -44,6 +44,7 @@ class Tickets(Base):
     request_type = Column(String, nullable=True)
     ticket_stage = Column(String(50), nullable=True, default="user_draft")  
 
+    attachments = relationship("TicketAttachment", back_populates="ticket", cascade="all, delete-orphan")
 
     __table_args__ = (
         CheckConstraint("status IN ('Draft', 'Open', 'In Progress', 'Resolved', 'Closed', 'On Hold')"),

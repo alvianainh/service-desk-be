@@ -14,7 +14,8 @@ import os
 from supabase import create_client, Client
 from sqlalchemy import text
 import mimetypes
-from uuid import UUID
+from uuid import UUID, uuid4
+from typing import Optional, List
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -32,15 +33,15 @@ async def create_public_report(
     category_id: str = Form(...),
     description: str = Form(...),
     action: str = Form("submit"),
-    file: UploadFile = File(None),
+    files: Optional[List[UploadFile]] = File(None),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
     roles = current_user.get("roles", [])
-
     allowed_roles = {"masyarakat", "pegawai"}
     if not any(role in allowed_roles for role in roles):
         raise HTTPException(status_code=403, detail="Unauthorized: hanya masyarakat atau pegawai yang dapat membuat laporan")
+
 
     opd_exists = db.execute(text("SELECT 1 FROM opd WHERE opd_id = :id"), {"id": opd_id}).first()
     category_exists = db.execute(text("SELECT 1 FROM ticket_categories WHERE category_id = :id"), {"id": category_id}).first()
@@ -58,12 +59,12 @@ async def create_public_report(
             stage_val = "user_submit"
         else:
             raise HTTPException(status_code=400, detail="Aksi tidak valid. Gunakan 'draft' atau 'submit'.")
-    elif "pegawai" in roles:
+    else:
         status_val = "Open"
         stage_val = "user_submit"
 
     new_ticket = Tickets(
-        ticket_id=uuid.uuid4(),
+        ticket_id=uuid4(),
         description=description,
         status=status_val,
         opd_id=UUID(opd_id),
@@ -78,41 +79,45 @@ async def create_public_report(
     db.commit()
     db.refresh(new_ticket)
 
-    file_url = None
-    if file:
-        try:
-            file_ext = os.path.splitext(file.filename)[1]
-            file_name = f"{new_ticket.ticket_id}{file_ext}"
+    uploaded_files = [] 
 
-            content_type = mimetypes.guess_type(file.filename)[0] or "application/octet-stream"
-            file_bytes = await file.read()
+    if files:
+        for file in files:
+            try:
+                file_ext = os.path.splitext(file.filename)[1]
+                file_name = f"{new_ticket.ticket_id}_{uuid4()}{file_ext}"
 
-            res = supabase.storage.from_("docs").upload(
-                file_name,
-                file_bytes,
-                {"content-type": content_type}
-            )
+                content_type = mimetypes.guess_type(file.filename)[0] or "application/octet-stream"
+                file_bytes = await file.read()
 
-            if hasattr(res, "error") and res.error:
-                raise Exception(res.error.message)
-            if isinstance(res, dict) and res.get("error"):
-                raise Exception(res["error"])
+                res = supabase.storage.from_("docs").upload(
+                    file_name,
+                    file_bytes,
+                    {"content-type": content_type}
+                )
 
-            file_url = supabase.storage.from_("docs").get_public_url(file_name)
-            if not isinstance(file_url, str):
-                file_url = None
+                if hasattr(res, "error") and res.error:
+                    raise Exception(res.error.message)
+                if isinstance(res, dict) and res.get("error"):
+                    raise Exception(res["error"])
 
-            new_attachment = TicketAttachment(
-                attachment_id=uuid.uuid4(),
-                has_id=new_ticket.ticket_id,
-                uploaded_at=datetime.utcnow(),
-                file_path=file_url
-            )
-            db.add(new_attachment)
-            db.commit()
+                file_url = supabase.storage.from_("docs").get_public_url(file_name)
+                if not isinstance(file_url, str):
+                    file_url = None
 
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"File upload failed: {str(e)}")
+                new_attachment = TicketAttachment(
+                    attachment_id=uuid4(),
+                    has_id=new_ticket.ticket_id,
+                    uploaded_at=datetime.utcnow(),
+                    file_path=file_url
+                )
+                db.add(new_attachment)
+                db.commit()
+
+                uploaded_files.append(file_url)
+
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=f"Gagal upload file {file.filename}: {str(e)}")
 
     if "masyarakat" in roles and action_lower == "draft":
         message = "Laporan disimpan sebagai draft. Anda dapat mengirimkannya nanti."
@@ -126,7 +131,7 @@ async def create_public_report(
         "ticket_id": str(new_ticket.ticket_id),
         "status": new_ticket.status,
         "ticket_stage": new_ticket.ticket_stage,
-        "file_url": file_url
+        "uploaded_files": uploaded_files 
     }
 
 
@@ -324,7 +329,13 @@ async def get_ticket_detail_seksi(
         raise HTTPException(status_code=403, detail="Access denied: only seksi can view this data")
 
     opd_id = current_user.get("opd_id")
-    ticket = db.query(Tickets).filter(Tickets.ticket_id == ticket_id, Tickets.opd_id == opd_id).first()
+
+    ticket = (
+        db.query(Tickets)
+        .filter(Tickets.ticket_id == ticket_id, Tickets.opd_id == opd_id)
+        .first()
+    )
+
     if not ticket:
         raise HTTPException(status_code=404, detail="Ticket not found or access denied")
 

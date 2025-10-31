@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, List
 from uuid import UUID
 from datetime import datetime
 
@@ -26,6 +26,14 @@ class TicketResponseSchema(BaseModel):
         orm_mode = True
 
 
+class TicketAttachmentSchema(BaseModel):
+    attachment_id: UUID
+    file_path: str
+    uploaded_at: datetime
+
+    class Config:
+        orm_mode = True
+
 
 class TicketForSeksiSchema(BaseModel):
     ticket_id: UUID
@@ -41,6 +49,8 @@ class TicketForSeksiSchema(BaseModel):
     ticket_source: Optional[str]
     additional_info: Optional[str]
     request_type: Optional[str]
+
+    attachments: List[TicketAttachmentSchema] = []
 
     class Config:
         orm_mode = True
