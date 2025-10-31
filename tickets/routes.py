@@ -6,7 +6,7 @@ from . import models, schemas
 from auth.database import get_db
 from auth.auth import get_current_user, get_user_by_email
 from tickets import models, schemas
-from tickets.models import Tickets, TicketAttachment, TicketCategories, TicketUpdates
+from tickets.models import Tickets, TicketAttachment, TicketCategories, TicketUpdates  
 from tickets.schemas import TicketCreateSchema, TicketResponseSchema, TicketCategorySchema, TicketForSeksiSchema, TicketTrackResponse
 import uuid
 from auth.models import Opd
@@ -394,132 +394,188 @@ async def get_tickets_for_bidang(
 
     return tickets
 
-@router.get("/tickets/bidang/{ticket_id}", response_model=TicketForSeksiSchema)
-async def get_ticket_detail_bidang(
-    ticket_id: str,
-    db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
-):
-    if "bidang" not in current_user.get("roles", []):
-        raise HTTPException(status_code=403, detail="Access denied: only bidang can view this data")
-
-    opd_id = current_user.get("opd_id")
-    ticket = db.query(Tickets).filter(
-        Tickets.ticket_id == ticket_id, 
-        Tickets.opd_id == opd_id,
-        Tickets.status == "Verified by Seksi"
-        ).first()
-    if not ticket:
-        raise HTTPException(status_code=404, detail="Ticket not found or access denied")
-
-    return ticket
-
+#verifikasi bidang
 @router.post("/tickets/bidang/verify")
 async def create_bidang_verification(
-    ticket_id: str = Form(...),
-    priority: str = Form(None),
+    ticket_id: UUID = Form(...),
+    notes: str = Form(None),
+    action: str = Form("submit"),
     is_revisi: bool = Form(False),
     is_reject: bool = Form(False),
-    action: str = Form("submit"),  # draft / submit
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
-    roles = current_user.get("roles", [])
-    if "bidang" not in roles:
-        raise HTTPException(status_code=403, detail="Unauthorized: Only bidang can verify tickets")
+    try:
+        roles = {str(r).lower() for r in current_user.get("roles", [])}
+        if "bidang" not in roles:
+            raise HTTPException(status_code=403, detail="Akses ditolak: hanya Bidang yang dapat memverifikasi tiket.")
 
-    # Ambil tiket yang sudah diverifikasi seksi
-    ticket = db.query(Tickets).filter(
-        Tickets.ticket_id == ticket_id,
-        Tickets.status == "Verified by Seksi",
-        Tickets.opd_id == current_user.get("opd_id")
-    ).first()
+        opd_id = current_user.get("opd_id")
+        if not opd_id:
+            raise HTTPException(status_code=400, detail="Token tidak valid: opd_id hilang")
 
-    if not ticket:
-        raise HTTPException(status_code=404, detail="Ticket not found or not eligible for bidang verification")
+        user_id = current_user.get("id")
+        if not user_id:
+            raise HTTPException(status_code=400, detail="Token tidak valid: id pengguna hilang")
+        verified_uuid = UUID(str(user_id))
 
-    action_lower = action.lower()
-    if action_lower == "draft":
-        status_val = "Draft"
-    elif action_lower == "submit":
-        status_val = "Verified by Bidang"
-    else:
-        raise HTTPException(status_code=400, detail="Invalid action. Use 'draft' or 'submit'.")
+        # --- Ambil tiket (harus sudah diverifikasi Seksi atau masih draft bidang) ---
+        ticket = db.query(Tickets).filter(
+            Tickets.ticket_id == ticket_id,
+            Tickets.opd_id == opd_id,
+            Tickets.status.in_(["Verified by Seksi", "Draft"])
+        ).first()
 
-    ticket.priority = priority if priority else ticket.priority
-    ticket.status = status_val
-    ticket.updated_at = datetime.utcnow()
-    ticket.verified_id = UUID(current_user["id"]) 
+        if not ticket:
+            raise HTTPException(status_code=404, detail="Tiket tidak ditemukan atau belum diverifikasi oleh Seksi.")
 
-    # Simpan revisi/reject checkbox
-    ticket.is_revisi = is_revisi
-    ticket.is_reject = is_reject
+        now = datetime.utcnow()
+        action = action.lower().strip()
 
-    db.add(ticket)
-    db.commit()
-    db.refresh(ticket)
+        # --- Tentukan status dan stage baru ---
+        if action == "draft":
+            new_status = "Draft"
+            new_stage = "bidang_draft"
+            msg = "Draft verifikasi Bidang disimpan."
+        elif action == "submit":
+            if is_reject:
+                new_status = "Rejected by Bidang"
+                new_stage = "bidang_rejected"
+                msg = "Tiket ditolak oleh Bidang dan dikembalikan ke Seksi."
+            elif is_revisi:
+                new_status = "In Progress"
+                new_stage = "seksi_revisi"
+                msg = "Tiket dikembalikan ke Seksi untuk revisi."
+            else:
+                new_status = "Verified by Bidang"
+                new_stage = "bidang_verified"
+                msg = "Tiket diverifikasi oleh Bidang."
+        else:
+            raise HTTPException(status_code=400, detail="Aksi tidak valid. Gunakan 'draft' atau 'submit'.")
 
-    message = (
-        "Draft verifikasi bidang berhasil disimpan."
-        if action_lower == "draft"
-        else "Tiket berhasil diverifikasi oleh bidang dan dikirim kembali ke seksi."
-    )
+        # --- Update tiket utama ---
+        ticket.status = new_status
+        ticket.ticket_stage = new_stage
+        ticket.verified_id = verified_uuid
+        ticket.updated_at = now
 
-    return {
-        "message": message,
-        "ticket_id": str(ticket.ticket_id),
-        "status": ticket.status,
-        "priority": ticket.priority,
-        "is_revisi": ticket.is_revisi,
-        "is_reject": ticket.is_reject
-    }
+        # --- Simpan histori ---
+        notes_detail = notes or msg
+        if is_reject:
+            notes_detail += " (rejected=True)"
+        if is_revisi:
+            notes_detail += " (revisi=True)"
 
-# Ambil semua draft bidang
+        update = TicketUpdates(
+            status_change=new_status,
+            notes=notes_detail,
+            update_time=now,
+            has_calendar_id=ticket.opd_id,
+            makes_by_id=verified_uuid,
+            ticket_id=ticket.ticket_id,
+        )
+
+        db.add(update)
+        db.commit()
+        db.refresh(ticket)
+
+        return {
+            "message": msg,
+            "ticket_id": str(ticket.ticket_id),
+            "status": ticket.status,
+            "is_reject": is_reject,
+            "is_revisi": is_revisi,
+        }
+
+    except Exception as e:
+        db.rollback()
+        logger.exception("Error in create_bidang_verification:")
+        raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
+
+
 @router.get("/tickets/bidang/draft")
 async def get_bidang_drafts(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
-    if "bidang" not in current_user.get("roles", []):
-        raise HTTPException(status_code=403, detail="Unauthorized: Only bidang can access drafts")
+    roles = {str(r).lower() for r in current_user.get("roles", [])}
+    if "bidang" not in roles:
+        raise HTTPException(status_code=403, detail="Akses ditolak: hanya Bidang yang dapat melihat draft verifikasi.")
 
     opd_id = current_user.get("opd_id")
-    drafts = db.query(Tickets).filter(
-        Tickets.opd_id == opd_id,
-        Tickets.status == "Draft",
-        Tickets.verified_id == current_user["id"]
-    ).order_by(Tickets.updated_at.desc()).all()
+    if not opd_id:
+        raise HTTPException(status_code=400, detail="Token tidak valid: opd_id hilang")
 
-    return drafts
+    drafts = db.execute(
+        text("""
+            SELECT 
+                ticket_id, description, additional_info, opd_id, category_id, status, 
+                created_at, updated_at
+            FROM tickets
+            WHERE opd_id = :opd_id
+              AND status = 'Draft'
+              AND ticket_stage = 'bidang_draft'
+            ORDER BY updated_at DESC
+        """),
+        {"opd_id": str(opd_id)}
+    ).mappings().all()
 
+    return {"drafts": [dict(row) for row in drafts]}
 
-# Submit draft Bidang ke Seksi
+#submit draft verifikasi
 @router.put("/tickets/bidang/submit/{ticket_id}")
 async def submit_bidang_draft(
-    ticket_id: str,
+    ticket_id: UUID,
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
-    if "bidang" not in current_user.get("roles", []):
-        raise HTTPException(status_code=403, detail="Unauthorized: Only bidang can submit tickets")
+    try:
+        roles = {str(r).lower() for r in current_user.get("roles", [])}
+        if "bidang" not in roles:
+            raise HTTPException(status_code=403, detail="Akses ditolak: hanya Bidang yang dapat mengirim draft verifikasi.")
 
-    ticket = db.query(Tickets).filter(
-        Tickets.ticket_id == ticket_id,
-        Tickets.verified_id == current_user["id"],
-        Tickets.status == "Draft"
-    ).first()
+        opd_id = current_user.get("opd_id")
+        if not opd_id:
+            raise HTTPException(status_code=400, detail="Token tidak valid: opd_id hilang")
 
-    if not ticket:
-        raise HTTPException(status_code=404, detail="Draft not found or already submitted")
+        ticket = db.query(Tickets).filter(
+            Tickets.ticket_id == ticket_id,
+            Tickets.opd_id == opd_id,
+            Tickets.status == "Draft",
+            Tickets.ticket_stage == "bidang_draft"
+        ).first()
 
-    # Kirim ke seksi
-    ticket.status = "Verified by Bidang"
-    ticket.updated_at = datetime.utcnow()
-    db.add(ticket)
-    db.commit()
-    db.refresh(ticket)
+        if not ticket:
+            raise HTTPException(status_code=404, detail="Draft tiket tidak ditemukan atau bukan milik OPD Anda.")
 
-    return {"message": "Draft bidang berhasil dikirim ke seksi", "ticket_id": str(ticket.ticket_id)}
+        now = datetime.utcnow()
+        ticket.status = "Verified by Bidang"
+        ticket.ticket_stage = "bidang_verified"
+        ticket.updated_at = now
+
+        update = TicketUpdates(
+            status_change="Verified by Bidang",
+            notes="Draft diverifikasi dan dikirim ke Seksi.",
+            update_time=now,
+            has_calendar_id=ticket.opd_id,
+            makes_by_id=UUID(str(current_user["id"])),
+            ticket_id=ticket.ticket_id,
+        )
+
+        db.add(update)
+        db.commit()
+        db.refresh(ticket)
+
+        return {
+            "message": "Draft verifikasi Bidang berhasil dikirim.",
+            "ticket_id": str(ticket.ticket_id),
+            "status": ticket.status
+        }
+
+    except Exception as e:
+        db.rollback()
+        logger.exception("Error in submit_bidang_draft:")
+        raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
 
 # Tracking tiket
 @router.get(

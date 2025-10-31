@@ -26,7 +26,6 @@ class TicketResponseSchema(BaseModel):
         orm_mode = True
 
 
-
 class TicketForSeksiSchema(BaseModel):
     ticket_id: UUID
     description: Optional[str]
