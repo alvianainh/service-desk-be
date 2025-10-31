@@ -1,44 +1,165 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, File, UploadFile, Form
 from sqlalchemy.orm import Session
 from auth.auth import get_current_user
 from auth.database import get_db
-from auth.models import Articles, Users
+from auth.models import Articles, Users, ArticleTags, Tags
 import uuid
 from pydantic import BaseModel
 from sqlalchemy import func
-
+from typing import List, Optional
+from uuid import UUID
+import os
+import mimetypes
+from uuid import uuid4
+from supabase import create_client
 
 router = APIRouter(prefix="/articles", tags=["articles"])
 
 class ArticleCreate(BaseModel):
     title: str
     content: str
+    tags: Optional[List[str]] = []
+    cover_url: Optional[str] = None
+
+class ArticleData(BaseModel):
+    article_id: UUID
+    title: str
+    status: str
+    cover_path: Optional[str]
+    tags: List[str] = []
+
+    class Config:
+        orm_mode = True
+
+
+class ArticleResponse(BaseModel):
+    message: str
+    data: ArticleData
 
 class ArticleUpdate(BaseModel):
     title: str
     content: str
 
-@router.post("/", response_model=dict)
-async def create_article(
-    data: ArticleCreate,
+#tags
+class TagCreate(BaseModel):
+    tag_name: str
+
+
+class TagResponse(BaseModel):
+    tag_id: UUID
+    tag_name: str
+
+    class Config:
+        orm_mode = True
+
+
+
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+
+#TAGS
+@router.post("/tags", response_model=TagResponse)
+async def create_tag(
+    data: TagCreate,
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
     roles = current_user.get("roles", [])
+    if "admin_opd" not in roles:
+        raise HTTPException(status_code=403, detail="Unauthorized: Only admin_opd can create tags")
 
+    existing_tag = db.query(Tags).filter(Tags.tag_name == data.tag_name).first()
+    if existing_tag:
+        raise HTTPException(status_code=400, detail="Tag dengan nama ini sudah ada")
+
+    new_tag = Tags(tag_name=data.tag_name)
+    db.add(new_tag)
+    db.commit()
+    db.refresh(new_tag)
+
+    return new_tag
+
+
+@router.get("/tags", response_model=List[TagResponse])
+async def get_all_tags(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    roles = current_user.get("roles", [])
+    if not any(role in roles for role in ["admin_opd", "admin_kota"]):
+        raise HTTPException(
+            status_code=403,
+            detail="Unauthorized: Only admin_opd or admin_kota can view tags"
+        )
+
+    tags = db.query(Tags).order_by(Tags.tag_name.asc()).all()
+    return tags
+
+
+@router.post("/", response_model=ArticleResponse)
+async def create_article(
+    title: str = Form(...),
+    content: str = Form(...),
+    tag_ids: Optional[List[str]] = Form(None),
+    cover_url: Optional[str] = Form(None),
+    cover_file: UploadFile = File(None),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    roles = current_user.get("roles", [])
     if "admin_opd" not in roles:
         raise HTTPException(status_code=403, detail="Unauthorized: Only admin_opd can create articles")
 
-    new_article = Articles(
-        title=data.title,
-        content=data.content,
-        status="pending_review",
-        makes_by_id=current_user["id"]
-    )
+    if not cover_file and not cover_url:
+        raise HTTPException(status_code=400, detail="Harus menyertakan file cover atau URL cover")
 
+    final_cover_path = cover_url
+
+    if cover_file:
+        try:
+            file_ext = os.path.splitext(cover_file.filename)[1]
+            file_name = f"{uuid4()}{file_ext}"
+            file_bytes = await cover_file.read()
+            content_type = mimetypes.guess_type(cover_file.filename)[0] or "application/octet-stream"
+
+            res = supabase.storage.from_("cover_article").upload(
+                file_name, file_bytes, {"content-type": content_type}
+            )
+
+            if hasattr(res, "error") and res.error:
+                raise Exception(res.error.message)
+            if isinstance(res, dict) and res.get("error"):
+                raise Exception(res["error"])
+
+            file_url = supabase.storage.from_("cover_article").get_public_url(file_name)
+            final_cover_path = file_url if isinstance(file_url, str) else cover_url
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Cover upload failed: {str(e)}")
+
+    new_article = Articles(
+        title=title,
+        content=content,
+        status="pending_review",
+        makes_by_id=current_user["id"],
+        cover_path=final_cover_path
+    )
     db.add(new_article)
     db.commit()
     db.refresh(new_article)
+
+    if tag_ids:
+        for tag_id in tag_ids:
+            tag = db.query(Tags).filter(Tags.tag_id == tag_id).first()
+            if not tag:
+                raise HTTPException(status_code=404, detail=f"Tag dengan ID {tag_id} tidak ditemukan")
+            new_article.tags.append(tag) 
+
+    db.commit()
+    db.refresh(new_article)
+
+    tag_names = [t.tag_name for t in new_article.tags]
 
     return {
         "message": "Artikel berhasil diajukan dan menunggu review admin kota",
@@ -46,9 +167,12 @@ async def create_article(
             "article_id": str(new_article.article_id),
             "title": new_article.title,
             "status": new_article.status,
+            "cover_path": new_article.cover_path,
+            "tags": tag_names,
             "created_at": new_article.created_at
         }
     }
+
 
 @router.put("/{article_id}", response_model=dict)
 async def update_article(
@@ -163,15 +287,72 @@ async def verify_article(
 
 @router.get("/", response_model=list)
 async def get_public_articles(db: Session = Depends(get_db)):
-    articles = db.query(Articles).filter(Articles.status == "approved").all()
-    return [{"title": a.title, "content": a.content, "author": f"{a.makes_by.first_name} {a.makes_by.last_name}"} for a in articles]
+    articles = (
+        db.query(Articles)
+        .filter(Articles.status == "approved")
+        .order_by(Articles.created_at.desc())
+        .all()
+    )
+
+    results = []
+    for a in articles:
+        tags_data = [
+            {"tag_id": str(tag.tag_id), "tag_name": tag.tag_name}
+            for tag in a.tags
+        ]
+
+        author_data = None
+        if a.makes_by:
+            author_data = {
+                "user_id": str(a.makes_by.id),
+                "first_name": a.makes_by.first_name,
+                "last_name": a.makes_by.last_name,
+                "email": a.makes_by.email
+            }
+
+        results.append({
+            "article_id": str(a.article_id),
+            "title": a.title,
+            "content": a.content,
+            "cover_path": a.cover_path,
+            "tags": tags_data,
+            "author": author_data
+        })
+
+    return results
 
 
 @router.get("/my-articles")
-async def get_my_articles(db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
-    articles = db.query(Articles).filter(Articles.makes_by_id == current_user["id"]).all()
-    return [{"title": a.title, "status": a.status, "updated_at": a.updated_at} for a in articles]
+async def get_my_articles(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    articles = (
+        db.query(Articles)
+        .filter(Articles.makes_by_id == current_user["id"])
+        .order_by(Articles.updated_at.desc())
+        .all()
+    )
+    results = []
+    for a in articles:
+        tags_data = [
+            {"tag_id": str(tag.tag_id), "tag_name": tag.tag_name}
+            for tag in a.tags
+        ]
 
+        results.append({
+            "article_id": str(a.article_id),
+            "title": a.title,
+            "status": a.status,
+            "cover_path": a.cover_path,
+            "updated_at": a.updated_at,
+            "tags": tags_data
+        })
+
+    return {
+        "total": len(results),
+        "data": results
+    }
 
 
 @router.get("/all", response_model=dict)
@@ -189,16 +370,25 @@ async def get_all_articles(
         .all()
     )
 
-    results = [
-        {
+    results = []
+    for a in articles:
+        tags_data = [
+            {"tag_id": str(tag.tag_id), "tag_name": tag.tag_name}
+            for tag in a.tags
+        ]
+
+        results.append({
             "article_id": str(a.article_id),
             "user_id": str(a.makes_by_id),
             "title": a.title,
             "content": a.content,
             "status": a.status,
+            "cover_path": a.cover_path,
             "created_at": a.created_at,
-        }
-        for a in articles
-    ]
+            "tags": tags_data
+        })
 
-    return {"total": len(results), "data": results}
+    return {
+        "total": len(results),
+        "data": results
+    }
