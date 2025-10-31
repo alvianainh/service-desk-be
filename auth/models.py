@@ -5,7 +5,7 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 import enum
 import uuid
-from datetime import date
+from datetime import datetime
 
 
 # class RegisterModel(BaseModel):
@@ -82,11 +82,29 @@ class Articles(Base):
     article_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     title = Column(String, nullable=False)
     content = Column(Text, nullable=False)
-    status = Column(String, default="draft")  
+    status = Column(String, default="draft")
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
     updated_at = Column(TIMESTAMP(timezone=True), server_default=func.now(), onupdate=func.now())
     makes_by_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     approved_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    cover_path = Column(String, nullable=True)
 
     makes_by = relationship("Users", foreign_keys=[makes_by_id], backref="articles_created")
     approved_by = relationship("Users", foreign_keys=[approved_id], backref="articles_approved")
+    tags = relationship("Tags", secondary="article_tags", back_populates="articles")
+
+
+class ArticleTags(Base):
+    __tablename__ = "article_tags"
+    article_id = Column(UUID(as_uuid=True), ForeignKey("articles.article_id"), primary_key=True)
+    tag_id = Column(UUID(as_uuid=True), ForeignKey("tags.tag_id"), primary_key=True)
+
+
+class Tags(Base):
+    __tablename__ = "tags"
+
+    tag_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tag_name = Column(String, unique=True, nullable=False)
+
+    
+    articles = relationship("Articles", secondary="article_tags", back_populates="tags")
