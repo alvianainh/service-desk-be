@@ -12,9 +12,11 @@ from auth.auth import (
     get_user_by_email,
     hash_password,
     get_current_user,
+    create_refresh_token,
+    verify_refresh_token
 )
 from auth import database
-from auth.models import Users, Roles, UserRoles
+from auth.models import Users, Roles, UserRoles, Opd, RefreshTokens
 from pydantic import BaseModel
 from typing import List, Optional
 from datetime import date
@@ -22,6 +24,8 @@ from uuid import UUID
 import uuid
 import mimetypes
 import os
+from dotenv import load_dotenv
+from datetime import datetime
 from supabase import create_client, Client
 
 router = APIRouter()
@@ -31,6 +35,12 @@ SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 BUCKET_NAME = "avatar"
+
+load_dotenv()
+
+SECRET_KEY = os.getenv("SECRET_KEY")
+ALGORITHM = "HS256"
+REFRESH_TOKEN_EXPIRE_DAYS = 7
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -48,8 +58,10 @@ class UserProfileSchema(BaseModel):
     profile_url: Optional[str] = None
     roles: List[str] = []
     opd_id: Optional[UUID] = None
+    opd_name: Optional[str] = None
     no_employee: Optional[str] = None
     division: Optional[str] = None
+    nik: Optional[str] = None
 
     model_config = {
         "from_attributes": True  # Pydantic V2
@@ -152,6 +164,7 @@ async def register(data: RegisterModel, db: Session = Depends(database.get_db)):
         last_name=data.last_name,
         phone_number=data.phone_number,
         opd_id=data.opd_id,
+        nik=data.nik,
         birth_date=data.birth_date,
         address=data.address,
         no_employee=data.no_employee,
@@ -201,7 +214,7 @@ async def login(data: LoginModel, db: Session = Depends(database.get_db)):
     if not user or not verify_password(data.password, user.password):
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
-    from auth.models import Roles, UserRoles 
+    from auth.models import Roles, UserRoles
     roles = (
         db.query(Roles.role_name)
         .join(UserRoles, Roles.role_id == UserRoles.role_id)
@@ -211,9 +224,11 @@ async def login(data: LoginModel, db: Session = Depends(database.get_db)):
     role_names = [r.role_name for r in roles] if roles else ["user"]
 
     access_token = create_access_token(user, db)
+    refresh_token = create_refresh_token(str(user.id), db)
 
     return {
         "access_token": access_token,
+        "refresh_token": refresh_token,
         "token_type": "bearer",
         "user": {
             "email": user.email,
@@ -221,6 +236,34 @@ async def login(data: LoginModel, db: Session = Depends(database.get_db)):
             "last_name": user.last_name,
             "roles": role_names
         }
+    }
+
+
+@router.post("/refresh")
+async def refresh_token(refresh_token: str, db: Session = Depends(get_db)):
+    token_record = (
+        db.query(RefreshTokens)
+        .filter(RefreshTokens.token == refresh_token, RefreshTokens.revoked == False)
+        .first()
+    )
+
+    if not token_record:
+        raise HTTPException(status_code=401, detail="Invalid refresh token")
+
+    if token_record.expires_at < datetime.utcnow():
+        token_record.revoked = True 
+        db.commit()
+        raise HTTPException(status_code=401, detail="Refresh token expired")
+
+    user = db.query(Users).filter(Users.id == token_record.user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    new_access_token = create_access_token(user, db)
+
+    return {
+        "access_token": new_access_token,
+        "token_type": "bearer"
     }
 
 @router.get("/profile", response_model=UserProfileSchema)
@@ -240,6 +283,11 @@ async def get_profile(
     )
     role_names = [r.role_name for r in roles]
 
+    opd_name = None
+    if user.opd_id:
+        opd = db.query(Opd).filter(Opd.opd_id == user.opd_id).first()
+        opd_name = opd.opd_name if opd else None
+
     return {
         "id": user.id,
         "email": user.email,
@@ -253,6 +301,8 @@ async def get_profile(
         "profile_url": user.profile_url,
         "roles": role_names,
         "opd_id": user.opd_id,
+        "nik": user.nik,
+        "opd_name": opd_name,
         "no_employee": user.no_employee,
         "division": user.division
     }

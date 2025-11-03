@@ -10,7 +10,8 @@ from auth.schemas import RegisterModel
 from . import models, database
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from .database import get_db
-from .models import Users, Roles, UserRoles, Opd
+import uuid
+from .models import Users, Roles, UserRoles, Opd, RefreshTokens
 from jose import JWTError, jwt
 
 
@@ -21,6 +22,7 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 SECRET_KEY = os.getenv("SECRET_KEY")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60
+REFRESH_TOKEN_EXPIRE_DAYS = 7
 
 # oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
 
@@ -29,8 +31,46 @@ security = HTTPBearer()
 # def hash_password(password: str):
 #     return pwd_context.hash(password)
 
+
+def create_refresh_token(user_id: str, db: Session):
+    """
+    Membuat refresh token UUID dan simpan ke database
+    """
+    token = str(uuid.uuid4())
+    expires_at = datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+
+    new_refresh = RefreshTokens(
+        user_id=user_id,
+        token=token,
+        expires_at=expires_at,
+        revoked=False
+    )
+    db.add(new_refresh)
+    db.commit()
+    db.refresh(new_refresh)
+    return token
+
+
+def verify_refresh_token(db: Session, token: str):
+    """
+    Memeriksa validitas refresh token
+    """
+    record = (
+        db.query(RefreshTokens)
+        .filter(RefreshTokens.token == token, RefreshTokens.revoked == False)
+        .first()
+    )
+
+    if not record:
+        raise HTTPException(status_code=401, detail="Invalid refresh token")
+
+    if record.expires_at < datetime.utcnow():
+        raise HTTPException(status_code=401, detail="Refresh token expired")
+
+    return record.user_id
+
 def hash_password(password: str) -> str:
-    truncated = password.encode("utf-8")[:72]  # keep as bytes
+    truncated = password.encode("utf-8")[:72] 
     return pwd_context.hash(truncated)
 
 # def verify_password(plain_password, hashed_password) -> bool:
@@ -138,6 +178,7 @@ async def register_user(data: RegisterModel, db: Session):
         last_name=data.last_name,
         phone_number=data.phone_number,
         opd_id=data.opd_id,
+        nik=data.nik,
         birth_date=data.birth_date,
         address=data.address,
         no_employee=data.no_employee,
@@ -153,3 +194,4 @@ async def register_user(data: RegisterModel, db: Session):
 async def get_user_by_email(email: str, db: Session = Depends(database.get_db)):
     user = db.query(models.Users).filter(models.Users.email == email).first()
     return user
+

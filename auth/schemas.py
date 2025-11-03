@@ -15,6 +15,7 @@ class RegisterModel(BaseModel):
     password: str
     phone_number: Optional[str] = None
     opd_id: Optional[str] = None
+    nik: Optional[str] = None
     birth_date: Optional[date] = None
     address: Optional[str] = None
     no_employee: Optional[str] = None
