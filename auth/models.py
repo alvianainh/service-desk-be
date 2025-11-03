@@ -1,5 +1,5 @@
 # from pydantic import BaseModel
-from sqlalchemy import Column, Integer, String, Enum, ForeignKey, TEXT, TIMESTAMP, Date, Text, func
+from sqlalchemy import Column, Integer, String, Enum, ForeignKey, TEXT, TIMESTAMP, Date, Text, func, DateTime, Boolean
 from .database import Base
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
@@ -61,6 +61,7 @@ class Users(Base):
     jabatan = Column(String)
     division = Column(String)
     start_date = Column(Date)
+    nik = Column(String, unique=True, nullable=True)
 
     user_roles = relationship("UserRoles", back_populates="user")
     opd = relationship("Opd", back_populates="users")
@@ -108,3 +109,13 @@ class Tags(Base):
 
     
     articles = relationship("Articles", secondary="article_tags", back_populates="tags")
+
+class RefreshTokens(Base):
+    __tablename__ = "refresh_tokens"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    token = Column(String, nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    revoked = Column(Boolean, default=False)
