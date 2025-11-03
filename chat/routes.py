@@ -30,8 +30,8 @@ async def send_message(
     user_id = UUID(current_user["id"])
     roles = current_user.get("roles", [])
 
-    if "masyarakat" not in roles:
-        raise HTTPException(status_code=403, detail="Hanya masyarakat yang dapat memulai chat")
+    if not any(role in roles for role in ["masyarakat", "pegawai"]):
+        raise HTTPException(status_code=403, detail="Hanya masyarakat atau pegawai yang dapat memulai chat")
 
     chat = db.query(Chat).filter(Chat.opd_id == opd_id, Chat.user_id == user_id).first()
 
@@ -84,8 +84,8 @@ async def send_reply_from_user(
     current_user: dict = Depends(get_current_user)
 ):
     roles = current_user.get("roles", [])
-    if "masyarakat" not in roles:
-        raise HTTPException(status_code=403, detail="Hanya masyarakat yang dapat mengirim pesan")
+    if not any(role in roles for role in ["masyarakat", "pegawai"]):
+        raise HTTPException(status_code=403, detail="Hanya masyarakat atau pegawai yang dapat mengirim pesan")
 
     user_id = UUID(current_user["id"])
     chat = db.query(Chat).filter(Chat.chat_id == chat_id, Chat.user_id == user_id).first()
@@ -133,8 +133,8 @@ async def get_chat_history_for_user(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
-    if "masyarakat" not in current_user.get("roles", []):
-        raise HTTPException(status_code=403, detail="Hanya masyarakat yang dapat melihat riwayat chat")
+    if not any(role in roles for role in ["masyarakat", "pegawai"]):
+        raise HTTPException(status_code=403, detail="Hanya masyarakat atau pegawai yang dapat melihat riwayat chat")
 
     user_id = UUID(current_user["id"])
     chat = (
