@@ -133,7 +133,9 @@ async def get_chat_history_for_user(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
-    if not any(role in roles for role in ["masyarakat", "pegawai"]):
+    roles = current_user.get("roles", [])
+
+    if not any(role in ["masyarakat", "pegawai"] for role in roles):
         raise HTTPException(status_code=403, detail="Hanya masyarakat atau pegawai yang dapat melihat riwayat chat")
 
     user_id = UUID(current_user["id"])
