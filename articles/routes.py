@@ -87,13 +87,6 @@ async def get_all_tags(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
-    roles = current_user.get("roles", [])
-    if not any(role in roles for role in ["admin_opd", "admin_kota"]):
-        raise HTTPException(
-            status_code=403,
-            detail="Unauthorized: Only admin_opd or admin_kota can view tags"
-        )
-
     tags = db.query(Tags).order_by(Tags.tag_name.asc()).all()
     return tags
 
