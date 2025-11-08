@@ -25,9 +25,10 @@ class Tickets(Base):
     __tablename__ = "tickets"
 
     ticket_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    title = Column(String(255), nullable=True) 
     description = Column(Text, nullable=True)
     priority = Column(String(50), nullable=True)
-    status = Column(String(50), nullable=False, default="Open")
+    status = Column(String(50), nullable=False, default="Draft")
     sla_due = Column(DateTime, nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=True, default=datetime.utcnow)
@@ -46,29 +47,27 @@ class Tickets(Base):
 
 
     __table_args__ = (
-    CheckConstraint(
-        "status IN ("
-        "'Draft', 'Open', 'In Progress', 'Resolved', 'Closed', 'On Hold', "
-        "'Verified by Seksi', 'Rejected by Seksi', "
-        "'Rejected by Bidang', 'Verified', 'Verified by Bidang', 'Re-open'"
-        ")"
-    ),
-    CheckConstraint("ticket_source IN ('masyarakat', 'pegawai')"),
-    CheckConstraint(
-        "request_type IS NULL OR request_type IN ('reset_password', 'permohonan_akses', 'permintaan_perangkat')"
-    ),
-    CheckConstraint(
-        "ticket_stage IN ("
-        "'user_draft','submitted','seksi_draft','seksi_verified','seksi_rejected',"
-        "'pending','revisi','bidang_draft','bidang_verified','bidang_rejected'"
-        ")"
-    ),
-)
+        CheckConstraint(
+            "status IN ("
+            "'Draft', 'Open', 'In Progress', 'Resolved', 'Closed', 'On Hold', 'Re-open'"
+            ")"  # Hanya status utama workflow, tanpa status verifikasi
+        ),
+        CheckConstraint("ticket_source IN ('masyarakat', 'pegawai')"),
+        CheckConstraint(
+            "request_type IS NULL OR request_type IN ('reset_password', 'permohonan_akses', 'permintaan_perangkat')"
+        ),
+        CheckConstraint(
+            "ticket_stage IN ("
+            "'user_draft', 'user_submit', 'seksi_draft', 'seksi_submit', 'bidang_draft', 'bidang_submit'"
+            ")"  # Hanya untuk track draft/submit
+        ),
+    )
 
     opd = relationship("Opd", backref="tickets")
     attachments = relationship("TicketAttachment", back_populates="ticket")
     category = relationship("TicketCategories", back_populates="tickets")
-
+    creator = relationship("Users", foreign_keys=[creates_id], backref="created_tickets")
+    assignee = relationship("Users", foreign_keys=[assigned_to_id], backref="assigned_tickets")
 
 class TicketAttachment(Base):
     __tablename__ = "ticket_attachment"
@@ -97,6 +96,8 @@ class TicketUpdates(Base):
 
     update_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     status_change = Column(String(50), nullable=False)
+    verification_status = Column(String(50), nullable=True)  
+
     notes = Column(Text, nullable=True)
     update_time = Column(DateTime, nullable=False, default=datetime.utcnow)
     

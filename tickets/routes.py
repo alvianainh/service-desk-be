@@ -302,71 +302,289 @@ async def get_tickets_for_seksi(
         db.query(Tickets)
         .filter(
             Tickets.opd_id == opd_id,
-            Tickets.status != "Draft"
+            Tickets.ticket_stage.in_(["user_submit", "seksi_draft", "seksi_submit", "bidang_draft", "bidang_submit"])
         )
         .all()
     )
 
     return tickets
 
+@router.get("/tickets/seksi/draft", response_model=list[TicketForSeksiSchema])
+async def get_draft_tickets_seksi(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Get semua draft tickets yang dibuat oleh Seksi"""
+    if "seksi" not in current_user.get("roles", []):
+        raise HTTPException(status_code=403, detail="Access denied: only seksi can view this data")
+
+    user = db.query(Users).filter(Users.id == current_user["id"]).first()
+    opd_id = user.opd_id if user else None
+
+    draft_tickets = db.query(Tickets).filter(
+        Tickets.opd_id == opd_id,
+        Tickets.ticket_stage == "seksi_draft"  # Hanya draft yang dibuat seksi
+    ).order_by(Tickets.updated_at.desc()).all()
+
+    return draft_tickets
+
 @router.get("/tickets/seksi/{ticket_id}", response_model=TicketForSeksiSchema)
 async def get_ticket_detail_seksi(
-    ticket_id: str,
+    ticket_id: str,  
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
     if "seksi" not in current_user.get("roles", []):
         raise HTTPException(status_code=403, detail="Access denied: only seksi can view this data")
 
-    opd_id = current_user.get("opd_id")
-    ticket = db.query(Tickets).filter(Tickets.ticket_id == ticket_id, Tickets.opd_id == opd_id).first()
+    user = db.query(Users).filter(Users.id == current_user["id"]).first()
+    opd_id = user.opd_id if user else None
+
+    ticket = db.query(Tickets).filter(
+        Tickets.ticket_id == ticket_id, 
+        Tickets.opd_id == opd_id
+    ).first()
+    
     if not ticket:
         raise HTTPException(status_code=404, detail="Ticket not found or access denied")
 
-    return ticket
+    response_data = {
+        "ticket_id": ticket.ticket_id,
+        "title": ticket.title, 
+        "description": ticket.description, 
+        "priority": ticket.priority,  
+        "status": ticket.status,
+        "ticket_stage": ticket.ticket_stage,
+        "created_at": ticket.created_at,
+        "updated_at": ticket.updated_at,
+        "closed_at": ticket.closed_at,
+        "opd_id": ticket.opd_id,
+        "category_id": ticket.category_id,
+        "creates_id": ticket.creates_id,
+        "ticket_source": ticket.ticket_source,
+        "additional_info": ticket.additional_info,  
+        "request_type": ticket.request_type,
+        "assigned_to_id": ticket.assigned_to_id,
+        "creator_name": None,  
+        "category_name": None, 
+        "attachments": []     
+    }
 
+    if ticket.creator:
+        response_data["creator_name"] = f"{ticket.creator.first_name or ''} {ticket.creator.last_name or ''}".strip()
 
-@router.post("/tickets/seksi/verify/{ticket_id}")
+    if ticket.category:
+        response_data["category_name"] = ticket.category.category_name
+
+    if ticket.attachments:
+        response_data["attachments"] = [attachment.file_path for attachment in ticket.attachments]
+
+    return TicketForSeksiSchema(**response_data)
+
+@router.post("/tickets/seksi/verify/{ticket_id}", response_model=TicketResponseSchema)
 async def verify_ticket_seksi(
-    ticket_id: str,
+    ticket_id: UUID,
     priority: str = Form(...),
+    category_id: Optional[UUID] = Form(None),
+    notes: Optional[str] = Form(None),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
+    """
+    Verifikasi tiket langsung oleh Seksi (tanpa simpan draft dulu):
+    - Status ticket = "Open" 
+    - Stage = "seksi_submit"
+    - Priority dan Category di-set
+    - Dikirim ke Bidang
+    """
     if "seksi" not in current_user.get("roles", []):
-        raise HTTPException(status_code=403, detail="Access denied: only seksi can verify tickets")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied: only seksi can verify tickets"
+        )
 
     if priority not in PRIORITY_OPTIONS:
-        raise HTTPException(status_code=400, detail=f"Invalid priority, must be one of {PRIORITY_OPTIONS}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid priority, must be one of {PRIORITY_OPTIONS}"
+        )
 
-    opd_id = current_user.get("opd_id")
-    ticket = db.query(Tickets).filter(Tickets.ticket_id == ticket_id, Tickets.opd_id == opd_id).first()
+    user = db.query(Users).filter(Users.id == current_user["id"]).first()
+    if not user or not user.opd_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Seksi tidak memiliki OPD yang terkait"
+        )
+    opd_id = user.opd_id
+
+    ticket = db.query(Tickets).filter(
+        Tickets.ticket_id == ticket_id,
+        Tickets.opd_id == opd_id,
+        Tickets.ticket_stage.in_(["user_submit", "seksi_draft"])  # Bisa dari user_submit atau seksi_draft
+    ).first()
+
+    if not ticket:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Ticket not found, already processed, or access denied"
+        )
+
+    if category_id:
+        category = db.query(TicketCategories).filter(
+            TicketCategories.category_id == category_id,
+            TicketCategories.opd_id == opd_id
+        ).first()
+        if not category:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid category for this OPD"
+            )
+        ticket.category_id = category_id
+
+    try:
+        ticket.priority = priority
+        ticket.status = "Open"                    # Status utama = Open
+        ticket.ticket_stage = "seksi_submit"      # Stage = seksi_submit (ke Bidang)
+        ticket.verified_id = current_user["id"]   # Catat siapa yang verifikasi
+        ticket.updated_at = datetime.utcnow()
+
+        update = TicketUpdates(
+            status_change="Open",  # Status change di log = Open
+            notes=notes or f"Ticket verified by Seksi with priority {priority}",
+            update_time=datetime.utcnow(),
+            makes_by_id=current_user["id"],
+            ticket_id=ticket.ticket_id
+        )
+        db.add(update)
+        
+        db.commit()
+        
+        db.refresh(ticket)
+
+        logger.info(
+            f"Ticket {ticket_id} verified by seksi {current_user['id']} - "
+            f"Status: {ticket.status}, Stage: {ticket.ticket_stage}, "
+            f"Priority: {ticket.priority}"
+        )
+
+        return TicketResponseSchema(
+            message=f"Ticket {ticket_id} verified successfully and sent to Bidang",
+            ticket_id=ticket_id,
+            status=ticket.status,
+            ticket_stage=ticket.ticket_stage
+        )
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error verifying ticket {ticket_id}: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to verify ticket: {str(e)}"
+        )
+
+@router.post("/tickets/seksi/draft/{ticket_id}", response_model=TicketResponseSchema)
+async def save_ticket_draft_seksi(
+    ticket_id: UUID,
+    priority: Optional[str] = Form(None),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Simpan tiket sebagai draft Seksi: Status = 'Draft', Stage = 'seksi_draft'"""
+    if "seksi" not in current_user.get("roles", []):
+        raise HTTPException(status_code=403, detail="Access denied: only seksi can save drafts")
+
+    user = db.query(Users).filter(Users.id == current_user["id"]).first()
+    opd_id = user.opd_id if user else None
+
+    ticket = db.query(Tickets).filter(
+        Tickets.ticket_id == ticket_id,
+        Tickets.opd_id == opd_id,
+        Tickets.ticket_stage.in_(["user_submit", "seksi_draft"])  # Bisa dari user_submit atau update draft
+    ).first()
+
     if not ticket:
         raise HTTPException(status_code=404, detail="Ticket not found or access denied")
 
-    ticket.priority = priority
-    ticket.status = "Verified by Seksi"
-    ticket.updated_at = datetime.utcnow()
-    db.add(ticket)
+    # Update fields jika ada
+    if priority:
+        if priority not in PRIORITY_OPTIONS:
+            raise HTTPException(status_code=400, detail=f"Invalid priority, must be one of {PRIORITY_OPTIONS}")
+        ticket.priority = priority
 
+    # Update ticket sebagai draft
+    ticket.status = "Draft"
+    ticket.ticket_stage = "seksi_draft"  # Tetap sebagai draft
+    ticket.updated_at = datetime.utcnow()
+
+    # Create update log
     update = TicketUpdates(
-        status_change=ticket.status,
-        notes=f"Verified by Seksi with priority {priority}",
+        status_change="Draft",
         update_time=datetime.utcnow(),
-        has_calendar_id=ticket.opd_id,
         makes_by_id=current_user["id"],
         ticket_id=ticket.ticket_id
     )
     db.add(update)
     db.commit()
 
-    return {
-        "message": f"Ticket {ticket_id} verified successfully",
-        "ticket_id": ticket_id,
-        "status": ticket.status,
-        "priority": ticket.priority
-    }
+    logger.info(f"Ticket {ticket_id} saved as draft by seksi")
 
+    return TicketResponseSchema(
+        message=f"Ticket {ticket_id} saved as draft successfully",
+        ticket_id=ticket_id,
+        status=ticket.status,
+        ticket_stage=ticket.ticket_stage
+    )
+
+@router.post("/tickets/seksi/draft/{ticket_id}/submit", response_model=TicketResponseSchema)
+async def submit_draft_seksi(
+    ticket_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Submit draft Seksi ke Bidang: Status = 'Open', Stage = 'seksi_submit'"""
+    if "seksi" not in current_user.get("roles", []):
+        raise HTTPException(status_code=403, detail="Access denied: only seksi can submit drafts")
+
+    user = db.query(Users).filter(Users.id == current_user["id"]).first()
+    opd_id = user.opd_id if user else None
+
+    ticket = db.query(Tickets).filter(
+        Tickets.ticket_id == ticket_id,
+        Tickets.opd_id == opd_id,
+        Tickets.ticket_stage == "seksi_draft"  # Hanya dari draft seksi
+    ).first()
+
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Draft ticket not found or access denied")
+
+    # Validasi: pastikan required fields sudah diisi
+    if not ticket.priority:
+        raise HTTPException(status_code=400, detail="Priority must be set before submitting draft")
+
+    # Update ticket dari draft ke submit
+    ticket.status = "Open"
+    ticket.ticket_stage = "seksi_submit"  # Submit ke Bidang
+    ticket.verified_id = current_user["id"]
+    ticket.updated_at = datetime.utcnow()
+
+    # Create update log
+    update = TicketUpdates(
+        status_change="Open",
+        update_time=datetime.utcnow(),
+        makes_by_id=current_user["id"],
+        ticket_id=ticket.ticket_id
+    )
+    db.add(update)
+    db.commit()
+
+    logger.info(f"Draft ticket {ticket_id} submitted to Bidang by seksi")
+
+    return TicketResponseSchema(
+        message=f"Draft ticket {ticket_id} submitted to Bidang successfully",
+        ticket_id=ticket_id,
+        status=ticket.status,
+        ticket_stage=ticket.ticket_stage
+    )
 
 #Bidang
 @router.get("/tickets/bidang", response_model=list[TicketForSeksiSchema])

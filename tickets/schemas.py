@@ -20,30 +20,36 @@ class TicketCreateSchema(BaseModel):
 class TicketResponseSchema(BaseModel):
     message: str
     ticket_id: UUID
-    status: str
+    status_change: str
+    ticket_stage: str
 
     class Config:
-        orm_mode = True
-
+        from_attributes = True
 
 class TicketForSeksiSchema(BaseModel):
     ticket_id: UUID
+    title: Optional[str] = None
     description: Optional[str]
     priority: Optional[str]
     status: str
+    ticket_stage: str
     created_at: datetime
-    updated_at: Optional[datetime]
-    closed_at: Optional[datetime]
-    opd_id: Optional[UUID]
+    #updated_at: Optional[datetime]
+    #closed_at: Optional[datetime]
+    #opd_id: Optional[UUID]
     category_id: Optional[UUID]
-    creates_id: Optional[UUID]
-    ticket_source: Optional[str]
+    category_name: Optional[str] = None
+    #creates_id: Optional[UUID]
+    #ticket_source: Optional[str]
     additional_info: Optional[str]
     request_type: Optional[str]
+    assigned_to_id: Optional[UUID]
+
+    creator_name: Optional[str] = None  
+    attachments: list[str] = []    
 
     class Config:
-        orm_mode = True
-
+        from_attributes = True
 
 class TicketBidangVerifySchema(BaseModel):
     ticket_id: UUID
@@ -54,8 +60,7 @@ class TicketBidangVerifySchema(BaseModel):
     status: str  # Draft / Verified by Bidang
 
     class Config:
-        orm_mode = True
-
+        from_attributes = True
 class TicketBidangSubmitResponse(BaseModel):
     message: str
     ticket_id: UUID
@@ -65,8 +70,7 @@ class TicketBidangSubmitResponse(BaseModel):
     is_reject: Optional[bool] = False
 
     class Config:
-        orm_mode = True
-
+        from_attributes = True
 
 
 class TicketCategorySchema(BaseModel):
@@ -76,8 +80,7 @@ class TicketCategorySchema(BaseModel):
     description: Optional[str]
 
     class Config:
-        orm_mode = True
-
+        from_attributes = True
 class TicketTrackResponse(BaseModel):
     ticket_id: UUID 
     status: str 
@@ -85,4 +88,4 @@ class TicketTrackResponse(BaseModel):
     opd: Optional[str]
 
     class Config:
-        orm_mode = True
+        from_attributes = True
