@@ -19,24 +19,28 @@ SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 SUPABASE_BUCKET = "docs_chat" 
 
+
 @router.post("/chat/send")
 async def send_message(
     opd_id: UUID = Form(...),
-    message: str = Form(""), 
+    message: str = Form(""),
     file: UploadFile = File(None),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
+
     user_id = UUID(current_user["id"])
-    roles = current_user.get("roles", [])
 
-    if not any(role in roles for role in ["masyarakat", "pegawai"]):
-        raise HTTPException(status_code=403, detail="Hanya masyarakat atau pegawai yang dapat memulai chat")
-
-    chat = db.query(Chat).filter(Chat.opd_id == opd_id, Chat.user_id == user_id).first()
+    chat = db.query(Chat).filter(
+        Chat.opd_id == opd_id,
+        Chat.user_id == user_id
+    ).first()
 
     if not chat:
-        chat = Chat(opd_id=opd_id, user_id=user_id)
+        chat = Chat(
+            opd_id=opd_id,
+            user_id=user_id
+        )
         db.add(chat)
         db.commit()
         db.refresh(chat)
@@ -48,15 +52,30 @@ async def send_message(
         file_path = f"{chat.chat_id}/{uuid.uuid4()}.{file_ext}"
 
         async with aiohttp.ClientSession() as session:
-            upload_url = f"{SUPABASE_URL}/storage/v1/object/{SUPABASE_BUCKET}/{file_path}"
-            headers = {"Authorization": f"Bearer {SUPABASE_KEY}", "Content-Type": file.content_type}
+            upload_url = (
+                f"{SUPABASE_URL}/storage/v1/object/"
+                f"{SUPABASE_BUCKET}/{file_path}"
+            )
+
+            headers = {
+                "Authorization": f"Bearer {SUPABASE_KEY}",
+                "Content-Type": file.content_type
+            }
+
             file_bytes = await file.read()
+
             async with session.put(upload_url, headers=headers, data=file_bytes) as res:
                 if res.status >= 300:
                     detail = await res.text()
-                    raise HTTPException(status_code=500, detail=f"Gagal upload file ke Supabase: {detail}")
+                    raise HTTPException(
+                        status_code=500,
+                        detail=f"Gagal upload file ke Supabase: {detail}"
+                    )
 
-        file_url = f"{SUPABASE_URL}/storage/v1/object/public/{SUPABASE_BUCKET}/{file_path}"
+        file_url = (
+            f"{SUPABASE_URL}/storage/v1/object/public/"
+            f"{SUPABASE_BUCKET}/{file_path}"
+        )
         file_type = file.content_type
 
     new_message = ChatMessage(
@@ -72,7 +91,12 @@ async def send_message(
     chat.last_message_at = datetime.utcnow()
     db.commit()
 
-    return {"message": "Pesan berhasil dikirim", "chat_id": str(chat.chat_id)}
+    return {
+        "message": "Pesan berhasil dikirim",
+        "chat_id": str(chat.chat_id),
+        "user": current_user
+    }
+
 
 
 @router.post("/chat/{chat_id}/send")
