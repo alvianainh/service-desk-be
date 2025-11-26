@@ -12,6 +12,7 @@ from auth.auth import (
     get_user_by_email,
     hash_password,
     get_current_user,
+    get_current_user_masyarakat,
     create_refresh_token,
     verify_refresh_token
 )
@@ -269,7 +270,7 @@ async def refresh_token(refresh_token: str, db: Session = Depends(get_db)):
 
 @router.get("/profile", response_model=UserProfileSchema)
 async def get_profile(
-    current_user: dict = Depends(get_current_user), 
+    current_user: dict = Depends(get_current_user_masyarakat), 
     db: Session = Depends(get_db)
 ):
     user = db.query(Users).filter(Users.id == current_user["id"]).first()

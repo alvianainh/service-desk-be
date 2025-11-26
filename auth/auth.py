@@ -212,41 +212,41 @@ def parse_name(full_name: str):
 
 
 
-# async def get_current_user(
-#     credentials: HTTPAuthorizationCredentials = Depends(security),
-#     db: Session = Depends(get_db)
-# ):
-#     token = credentials.credentials
-#     try:
-#         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-#         user_email = payload.get("sub") 
-#         role_names = payload.get("roles")
-#         opd_id = payload.get("opd_id")
-#         opd_name = payload.get("opd_name")
+async def get_current_user_masyarakat(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db)
+):
+    token = credentials.credentials
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_email = payload.get("sub") 
+        role_names = payload.get("roles")
+        opd_id = payload.get("opd_id")
+        opd_name = payload.get("opd_name")
 
 
-#         if not user_email:
-#             raise HTTPException(status_code=401, detail="Invalid token")
+        if not user_email:
+            raise HTTPException(status_code=401, detail="Invalid token")
 
-#         user = db.query(Users).filter(Users.email == user_email).first()
-#         if not user:
-#             raise HTTPException(status_code=404, detail="User not found")
+        user = db.query(Users).filter(Users.email == user_email).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
 
-#         roles = (
-#             db.query(Roles.role_name)
-#             .join(UserRoles, Roles.role_id == UserRoles.role_id)
-#             .filter(UserRoles.user_id == user.id)
-#             .all()
-#         )
-#         role_names = [r.role_name for r in roles]
+        roles = (
+            db.query(Roles.role_name)
+            .join(UserRoles, Roles.role_id == UserRoles.role_id)
+            .filter(UserRoles.user_id == user.id)
+            .all()
+        )
+        role_names = [r.role_name for r in roles]
 
-#         return {
-#             "id": str(user.id),
-#             "email": user.email,
-#             "roles": role_names,
-#             "opd_id": opd_id,  
-#             "opd_name": opd_name
-#         }
+        return {
+            "id": str(user.id),
+            "email": user.email,
+            "roles": role_names,
+            "opd_id": opd_id,  
+            "opd_name": opd_name
+        }
 
-#     except JWTError:
-#         raise HTTPException(status_code=401, detail="Invalid token")
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")

@@ -63,14 +63,14 @@ def upload_supabase_file(bucket_name: str, ticket_id: UUID, file: UploadFile):
 
     file_bytes = file.file.read()
 
-    res = SUPABASE.storage.from_(bucket_name).upload(file_name, file_bytes, {
+    res = supabase.storage.from_(bucket_name).upload(file_name, file_bytes, {
         "content-type": content_type
     })
 
     if isinstance(res, dict) and res.get("error"):
         raise Exception(res["error"])
 
-    return SUPABASE.storage.from_(bucket_name).get_public_url(file_name)
+    return supabase.storage.from_(bucket_name).get_public_url(file_name)
 
 
 async def get_role_name_from_asset(role_id: int):
@@ -454,6 +454,8 @@ async def get_ticket_categories(
     categories = db.query(TicketCategories).filter(TicketCategories.opd_id == opd_id).all()
 
     return categories
+
+
 
 
 @router.post("/pengajuan-pelayanan")
