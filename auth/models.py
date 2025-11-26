@@ -49,22 +49,36 @@ class Users(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     email = Column(String, unique=True, nullable=False)
-    password = Column(String, nullable=False)
-    first_name = Column(String)
-    last_name = Column(String)
-    phone_number = Column(String)
-    opd_id = Column(UUID, ForeignKey("opd.opd_id"), nullable=True)
-    birth_date = Column(Date)
-    address = Column(String)
-    profile_url = Column(String)
-    no_employee = Column(String)
-    jabatan = Column(String)
-    division = Column(String)
-    start_date = Column(Date)
-    nik = Column(String, unique=True, nullable=True)
+    password = Column(String, nullable=True)  # sesuai table (nullable)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
 
+    first_name = Column(String, nullable=True)
+    last_name = Column(String, nullable=True)
+    phone_number = Column(String, nullable=True)
+    profile_url = Column(String, nullable=True)
+
+    opd_id_asset = Column(Integer, nullable=True)
+
+    opd_id = Column(UUID(as_uuid=True), ForeignKey("opd.opd_id"), nullable=True)
+
+    birth_date = Column(Date, nullable=True)
+    address = Column(String, nullable=True)
+    no_employee = Column(String, nullable=True)
+    jabatan = Column(String, nullable=True)
+    division = Column(String, nullable=True)
+    start_date = Column(Date, nullable=True)
+    nik = Column(String, nullable=True)
+
+    # kolom tambahan di database
+    id_aset = Column(String, nullable=True)
+    username = Column(String, nullable=True)
+    role_aset_id = Column(String, nullable=True)
+    role_name_aset = Column(String, nullable=True)
+
+    # relationships
     user_roles = relationship("UserRoles", back_populates="user")
     opd = relationship("Opd", back_populates="users")
+
 
 class Opd(Base):
     __tablename__ = "opd"
@@ -72,9 +86,13 @@ class Opd(Base):
 
     opd_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     opd_name = Column(String, unique=True, nullable=False)
-    description = Column(Text)
+    description = Column(Text, nullable=True)
     file_path = Column(Text, nullable=True)
 
+    # kolom baru dari ASET
+    id_aset = Column(Integer, unique=True, nullable=True)
+
+    # relasi dengan Users (jika user punya opd_id)
     users = relationship("Users", back_populates="opd")
 
 class Articles(Base):

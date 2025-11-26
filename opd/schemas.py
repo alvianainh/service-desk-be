@@ -21,7 +21,11 @@ class OPDCreate(BaseModel):
         return cls(opd_name=opd_name, description=description)
 
 class OPDResponse(OPDBase):
-    opd_id: UUID
+    opd_id: Optional[UUID] = None
+    id_aset: int
+    opd_name: str
+    file_path: Optional[str] = None
+    description: Optional[str] = None
 
     class Config:
         orm_mode = True

@@ -2,7 +2,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from auth.database import get_db
-
+# from auth.auth import routes as auth_routes
 
 from auth.schemas import RegisterModel, LoginModel
 from auth.auth import (
@@ -29,6 +29,7 @@ from datetime import datetime
 from supabase import create_client, Client
 
 router = APIRouter()
+# router.include_router(auth_routes.router)
 
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")

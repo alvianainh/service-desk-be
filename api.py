@@ -1,15 +1,32 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import logging
-from pipeline import router as auth_router
+from pipeline import router as pipeline_router
 from tickets import routes as ticket_routes
 from opd import routes as opd_routes
 from roles import routes as roles_routes
 from articles import routes as articles_routes
 from chat import routes as chat_routes
 
+from fastapi.openapi.models import APIKey, APIKeyIn, SecuritySchemeType
+
 app = FastAPI(
-    title="Service Desk API")
+    title="Service Desk API",
+    swagger_ui_init_oauth={},
+    openapi_tags=[
+        {"name": "auth", "description": "Authentication & SSO"},
+    ],
+    components={
+        "securitySchemes": {
+            "SSOBearer": {
+                "type": "http",
+                "scheme": "bearer",
+                "bearerFormat": "JWT"
+            }
+        }
+    },
+    security=[{"SSOBearer": []}]
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -28,7 +45,7 @@ async def root():
     return {"message": "Server is running!"}
 
 
-app.include_router(auth_router, tags=["auth"])
+app.include_router(pipeline_router, tags=["auth"])
 app.include_router(roles_routes.router, tags=["roles"])
 app.include_router(opd_routes.router)
 app.include_router(roles_routes.router, tags=["roles"])

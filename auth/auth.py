@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from passlib.context import CryptContext
 from dotenv import load_dotenv
 import os
-from fastapi import Depends, HTTPException, status
+from fastapi import Header, Depends, HTTPException, status, Security
 from jwt import PyJWTError
 from sqlalchemy.orm import Session
 from auth.schemas import RegisterModel
@@ -13,6 +13,11 @@ from .database import get_db
 import uuid
 from .models import Users, Roles, UserRoles, Opd, RefreshTokens
 from jose import JWTError, jwt
+import requests
+from fastapi import security
+import aiohttp
+
+sso_scheme = HTTPBearer(description="Masukkan token SSO di sini")
 
 
 load_dotenv()
@@ -28,14 +33,8 @@ REFRESH_TOKEN_EXPIRE_DAYS = 7
 
 security = HTTPBearer()
      
-# def hash_password(password: str):
-#     return pwd_context.hash(password)
-
 
 def create_refresh_token(user_id: str, db: Session):
-    """
-    Membuat refresh token UUID dan simpan ke database
-    """
     token = str(uuid.uuid4())
     expires_at = datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
 
@@ -52,9 +51,6 @@ def create_refresh_token(user_id: str, db: Session):
 
 
 def verify_refresh_token(db: Session, token: str):
-    """
-    Memeriksa validitas refresh token
-    """
     record = (
         db.query(RefreshTokens)
         .filter(RefreshTokens.token == token, RefreshTokens.revoked == False)
@@ -73,24 +69,12 @@ def hash_password(password: str) -> str:
     truncated = password.encode("utf-8")[:72] 
     return pwd_context.hash(truncated)
 
-# def verify_password(plain_password, hashed_password) -> bool:
-#     return pwd_context.verify(plain_password, hashed_password)
-
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     truncated = plain_password.encode("utf-8")[:72]  # keep as bytes
     return pwd_context.verify(truncated, hashed_password)
 
-# def create_access_token(data: dict, expires_delta: timedelta = None) -> str:
-#     to_encode = data.copy()
-#     expire = datetime.utcnow() + (expires_delta if expires_delta else timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
-#     to_encode.update({"exp": expire})
-#     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-
 def create_access_token(user: Users, db: Session, expires_delta: timedelta = None) -> str:
-    """
-    Generate JWT token containing user's info
-    """
     roles = [r.role.role_name for r in user.user_roles]
 
     opd_name = None
@@ -126,45 +110,6 @@ def decode_token(token: str):
     except PyJWTError:
         raise HTTPException(status_code=401, detail="Invalid token")
 
-async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
-    db: Session = Depends(get_db)
-):
-    token = credentials.credentials
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        user_email = payload.get("sub") 
-        role_names = payload.get("roles")
-        opd_id = payload.get("opd_id")
-        opd_name = payload.get("opd_name")
-
-
-        if not user_email:
-            raise HTTPException(status_code=401, detail="Invalid token")
-
-        user = db.query(Users).filter(Users.email == user_email).first()
-        if not user:
-            raise HTTPException(status_code=404, detail="User not found")
-
-        roles = (
-            db.query(Roles.role_name)
-            .join(UserRoles, Roles.role_id == UserRoles.role_id)
-            .filter(UserRoles.user_id == user.id)
-            .all()
-        )
-        role_names = [r.role_name for r in roles]
-
-        return {
-            "id": str(user.id),
-            "email": user.email,
-            "roles": role_names,
-            "opd_id": opd_id,  
-            "opd_name": opd_name
-        }
-
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Invalid token")
-
 async def register_user(data: RegisterModel, db: Session):
     existing_user = db.query(Users).filter(Users.email == data.email).first()
     if existing_user:
@@ -195,3 +140,113 @@ async def get_user_by_email(email: str, db: Session = Depends(database.get_db)):
     user = db.query(models.Users).filter(models.Users.email == email).first()
     return user
 
+ASSET_PROFILE_URL = "https://arise-app.my.id/api/account-management" 
+
+async def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Security(sso_scheme),
+    db: Session = Depends(get_db)
+):
+    token = credentials.credentials
+
+    async with aiohttp.ClientSession() as session:
+        async with session.get(
+            "https://arise-app.my.id/api/me",
+            headers={"Authorization": f"Bearer {token}"}
+        ) as res:
+            if res.status != 200:
+                raise HTTPException(status_code=401, detail="Token tidak valid")
+
+            data = await res.json()
+
+    aset_user = data["user"]
+
+    local_user = sync_user_from_aset(db, aset_user)
+
+    return {
+        "id": str(local_user.id),
+        "email": local_user.email,
+        "username": local_user.username,
+        "opd_id": str(local_user.opd_id) if local_user.opd_id else None,
+        "role_aset_id": local_user.role_aset_id,
+        "token": token
+    }
+
+def sync_user_from_aset(db: Session, aset_user: dict):
+    user = db.query(Users).filter(Users.id_aset == str(aset_user["id"])).first()
+
+    if not user:
+        user = Users(
+            email=aset_user["email"],
+            password=None,
+            first_name=aset_user["name"],
+            username=aset_user["username"],
+            address=aset_user["alamat"],
+            opd_id_asset=aset_user["dinas_id"],
+            id_aset=str(aset_user["id"]),
+            role_aset_id=aset_user["role_id"],
+        )
+        db.add(user)
+    else:
+        user.email = aset_user["email"]
+        user.first_name = aset_user["name"]
+        user.username = aset_user["username"]
+        user.address = aset_user["alamat"]
+        user.opd_id_asset = aset_user["dinas_id"]
+        user.role_aset_id = aset_user["role_id"]
+
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+def parse_name(full_name: str):
+    """
+    Pecah nama menjadi first_name + last_name
+    """
+    parts = full_name.split()
+    if len(parts) == 0:
+        return None, None
+    if len(parts) == 1:
+        return parts[0], None
+    return parts[0], " ".join(parts[1:])
+
+
+
+# async def get_current_user(
+#     credentials: HTTPAuthorizationCredentials = Depends(security),
+#     db: Session = Depends(get_db)
+# ):
+#     token = credentials.credentials
+#     try:
+#         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+#         user_email = payload.get("sub") 
+#         role_names = payload.get("roles")
+#         opd_id = payload.get("opd_id")
+#         opd_name = payload.get("opd_name")
+
+
+#         if not user_email:
+#             raise HTTPException(status_code=401, detail="Invalid token")
+
+#         user = db.query(Users).filter(Users.email == user_email).first()
+#         if not user:
+#             raise HTTPException(status_code=404, detail="User not found")
+
+#         roles = (
+#             db.query(Roles.role_name)
+#             .join(UserRoles, Roles.role_id == UserRoles.role_id)
+#             .filter(UserRoles.user_id == user.id)
+#             .all()
+#         )
+#         role_names = [r.role_name for r in roles]
+
+#         return {
+#             "id": str(user.id),
+#             "email": user.email,
+#             "roles": role_names,
+#             "opd_id": opd_id,  
+#             "opd_name": opd_name
+#         }
+
+#     except JWTError:
+#         raise HTTPException(status_code=401, detail="Invalid token")
