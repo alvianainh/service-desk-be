@@ -4,9 +4,26 @@ from enum import Enum
 from datetime import date
 
 
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+
+class UserRegister(BaseModel):
+    email: EmailStr
+    password: str
+    full_name: str = None
+    phone_number: str = None
+    address: str = None
+
+class UserLogin(BaseModel):
+    email: EmailStr
+    password: str
+    
+
 class UserRole(str, Enum):
     user = "user"
     admin = "admin"
+
 
 class RegisterModel(BaseModel):
     email: str

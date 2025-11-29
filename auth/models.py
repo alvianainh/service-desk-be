@@ -1,5 +1,5 @@
 # from pydantic import BaseModel
-from sqlalchemy import Column, Integer, String, Enum, ForeignKey, TEXT, TIMESTAMP, Date, Text, func, DateTime, Boolean
+from sqlalchemy import Column, Integer, String, Enum, ForeignKey, TEXT, TIMESTAMP, Date, Text, func, DateTime, Boolean, BigInteger
 from .database import Base
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
@@ -22,26 +22,50 @@ from datetime import datetime
 #     admin = "admin"
 
 
+# class Roles(Base):
+#     __tablename__ = "roles"
+
+#     role_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+#     role_name = Column(String(50), unique=True, nullable=False)
+#     description = Column(TEXT)
+
+#     user_roles = relationship("UserRoles", back_populates="role")
+
+
 class Roles(Base):
     __tablename__ = "roles"
 
-    role_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    role_name = Column(String(50), unique=True, nullable=False)
-    description = Column(TEXT)
+    role_id = Column(BigInteger, primary_key=True, autoincrement=True, index=True)
 
-    user_roles = relationship("UserRoles", back_populates="role")
+    role_name = Column(String, unique=True, nullable=False)
+    created_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),    
+        nullable=False
+    )
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),      
+        onupdate=func.now(),          
+        nullable=False
+    )
+
+    is_local = Column(Boolean, default=False)
+    users = relationship("Users", back_populates="role")
+
+    # user_roles = relationship("UserRoles", back_populates="role")
 
 
-class UserRoles(Base):
-    __tablename__ = "user_roles"
+# class UserRoles(Base):
+#     __tablename__ = "user_roles"
 
-    user_role_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
-    role_id = Column(UUID(as_uuid=True), ForeignKey("roles.role_id"))
-    assigned_at = Column(TIMESTAMP)
+#     user_role_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+#     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
+#     role_id = Column(UUID(as_uuid=True), ForeignKey("roles.role_id"))
+#     assigned_at = Column(TIMESTAMP)
 
-    user = relationship("Users", back_populates="user_roles")
-    role = relationship("Roles", back_populates="user_roles")
+#     user = relationship("Users", back_populates="user_roles")
+#     role = relationship("Roles", back_populates="user_roles")
 
 
 class Users(Base):
@@ -49,35 +73,31 @@ class Users(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     email = Column(String, unique=True, nullable=False)
-    password = Column(String, nullable=True)  # sesuai table (nullable)
+    password = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
-    first_name = Column(String, nullable=True)
-    last_name = Column(String, nullable=True)
+    full_name = Column(String, nullable=True)
     phone_number = Column(String, nullable=True)
     profile_url = Column(String, nullable=True)
 
-    opd_id_asset = Column(Integer, nullable=True)
-
-    opd_id = Column(UUID(as_uuid=True), ForeignKey("opd.opd_id"), nullable=True)
-
-    birth_date = Column(Date, nullable=True)
     address = Column(String, nullable=True)
-    no_employee = Column(String, nullable=True)
-    jabatan = Column(String, nullable=True)
-    division = Column(String, nullable=True)
-    start_date = Column(Date, nullable=True)
-    nik = Column(String, nullable=True)
 
-    # kolom tambahan di database
-    id_aset = Column(String, nullable=True)
-    username = Column(String, nullable=True)
-    role_aset_id = Column(String, nullable=True)
-    role_name_aset = Column(String, nullable=True)
+    # relasi ke tabel opd (FK)
+    # opd_id = Column(UUID(as_uuid=True), ForeignKey("opd.opd_id"), nullable=True)
+    opd_id_asset = Column(Integer, nullable=True)
+    role_id = Column(BigInteger, ForeignKey("roles.role_id"), nullable=True)
+    opd_id = Column(Integer, ForeignKey("dinas.id"), nullable=True)
+
+    # kolom dari API aset/SO
+    user_id_asset = Column(String, nullable=True)
+    username_asset = Column(String, nullable=True)
+    role_id_asset = Column(String, nullable=True)
+    # role_name_asset = Column(String, nullable=True)
 
     # relationships
-    user_roles = relationship("UserRoles", back_populates="user")
-    opd = relationship("Opd", back_populates="users")
+    # user_roles = relationship("UserRoles", back_populates="user")
+    role = relationship("Roles", back_populates="users")
+    # opd = relationship("Opd", back_populates="users")
 
 
 class Opd(Base):
@@ -93,7 +113,7 @@ class Opd(Base):
     id_aset = Column(Integer, unique=True, nullable=True)
 
     # relasi dengan Users (jika user punya opd_id)
-    users = relationship("Users", back_populates="opd")
+    # users = relationship("Users", back_populates="opd")
 
 class Articles(Base):
     __tablename__ = "articles"
@@ -137,3 +157,14 @@ class RefreshTokens(Base):
     expires_at = Column(DateTime, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     revoked = Column(Boolean, default=False)
+
+class Dinas(Base):
+    __tablename__ = "dinas"
+
+    id = Column(Integer, primary_key=True, autoincrement=False)  # pakai ID aset
+    nama = Column(String, nullable=False)
+    created_at = Column(DateTime, nullable=True)
+    updated_at = Column(DateTime, nullable=True)
+
+    file_path = Column(String, nullable=True)
+

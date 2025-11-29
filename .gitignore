@@ -1,3 +1,10 @@
 __pycache__/
 venv/
 .env
+
+opd/routes_temp.py
+chat/routes_temp.py
+tickets/routes_temp.py
+roles/routes_temp.py
+pipeline_temp.py
+articles/routes_temp.py

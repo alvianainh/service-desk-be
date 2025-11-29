@@ -81,7 +81,7 @@ class Tickets(Base):
     ticket_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     title = Column(String(255), nullable=True)
     description = Column(Text, nullable=True)
-    additional_info = Column(Text, nullable=True)
+    expected_resolution = Column(Text, nullable=True)
     priority = Column(String(50), nullable=True)
     status = Column(String(50), nullable=False, default="Draft")
     sla_due = Column(DateTime, nullable=True)
@@ -89,26 +89,34 @@ class Tickets(Base):
     updated_at = Column(DateTime, nullable=True, default=datetime.utcnow)
     closed_at = Column(DateTime, nullable=True)
     opd_id_asset = Column(Integer, nullable=True)
+    # opd_id_tickets = Column(Integer, nullable=True)
+    # role_id_source = Column(Integer, nullable=True)
 
-    asset_aset_id = Column(Integer, nullable=True)
-    asset_kode_bmd = Column(String, nullable=True)
-    asset_nomor_seri = Column(String, nullable=True)
-    asset_nama = Column(String, nullable=True)
-    asset_kategori = Column(String, nullable=True)
-    asset_subkategori_id = Column(Integer, nullable=True)
-    asset_jenis = Column(String, nullable=True)
-    asset_lokasi = Column(JSON, nullable=True)
-    asset_snapshot = Column(JSON, nullable=True)
+    asset_id = Column(Integer, nullable=True)
+    kode_bmd_asset = Column(String, nullable=True)
+    nomor_seri_asset = Column(String, nullable=True)
+    nama_asset = Column(String, nullable=True)
+    kategori_asset = Column(String, nullable=True)
+    subkategori_id_asset = Column(Integer, nullable=True)
+    jenis_asset = Column(String, nullable=True)
+    lokasi_asset = Column(JSON, nullable=True)
+    metadata_asset = Column(JSON, nullable=True)
+    ticket_code = Column(String(20), unique=True, nullable=True)
+
 
     # Relations
     creates_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"))
     assigned_to_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"))
     verified_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"))
     escalated_to_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"))
+    opd_id_tickets = Column(Integer, ForeignKey("dinas.id"), nullable=True)
+    role_id_source = Column(Integer, ForeignKey("roles.role_id"), nullable=True)
+
     # opd_id = Column(UUID(as_uuid=True), ForeignKey("opd.opd_id"))
     # category_id = Column(UUID(as_uuid=True), ForeignKey("ticket_categories.category_id"))
 
-    ticket_source = Column(String, nullable=False, default="masyarakat")
+    # ticket_source = Column(String, nullable=False, default="masyarakat")
+
     request_type = Column(String, nullable=True)
     ticket_stage = Column(String(50), nullable=False, default="user_draft")
 

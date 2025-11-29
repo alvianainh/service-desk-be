@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from auth.database import get_db
 # from auth.auth import routes as auth_routes
 
-from auth.schemas import RegisterModel, LoginModel
+from auth.schemas import RegisterModel, LoginModel, UserRegister, UserLogin, TokenResponse
 from auth.auth import (
     register_user,
     verify_password,
@@ -14,10 +14,11 @@ from auth.auth import (
     get_current_user,
     get_current_user_masyarakat,
     create_refresh_token,
-    verify_refresh_token
+    verify_refresh_token,
+    create_access_token_simple
 )
 from auth import database
-from auth.models import Users, Roles, UserRoles, Opd, RefreshTokens
+from auth.models import Users, Roles, Opd, RefreshTokens
 from pydantic import BaseModel
 from typing import List, Optional
 from datetime import date
@@ -75,7 +76,6 @@ class UserProfileUpdateSchema(BaseModel):
     phone_number: Optional[str] = None
     birth_date: Optional[date] = None
     address: Optional[str] = None
-
 
 
 @router.get("/")
@@ -150,95 +150,131 @@ async def root():
 #     }
 
 
-@router.post("/register")
-async def register(data: RegisterModel, db: Session = Depends(database.get_db)):
-    logger.info(f"POST /register - Register request for email: {data.email}")
-    
+@router.post("/register/masyarakat", response_model=TokenResponse)
+async def register_user_route(data: UserRegister, db: Session = Depends(get_db)):
     existing_user = db.query(Users).filter(Users.email == data.email).first()
     if existing_user:
-        return {"error": "Email already registered"}
-    
-    hashed_pw = hash_password(data.password)
-    new_user = Users(
+        raise HTTPException(status_code=400, detail="Email sudah digunakan")
+
+    user = Users(
         email=data.email,
-        password=hashed_pw,
-        first_name=data.first_name,
-        last_name=data.last_name,
+        password=hash_password(data.password),
+        full_name=data.full_name,
         phone_number=data.phone_number,
-        opd_id=data.opd_id,
-        nik=data.nik,
-        birth_date=data.birth_date,
         address=data.address,
-        no_employee=data.no_employee,
-        jabatan=data.jabatan,
-        division=data.division,
-        start_date=data.start_date
+        role_id=9 
     )
-    db.add(new_user)
+
+    db.add(user)
     db.commit()
-    db.refresh(new_user)
+    db.refresh(user)
 
-    from auth.models import Roles, UserRoles
+    token = create_access_token(user, db)
 
-    role = db.query(Roles).filter(Roles.role_name == "masyarakat").first()
-    if not role:
-        role = Roles(role_name="masyarakat", description="Default role for new users")
-        db.add(role)
-        db.commit()
-        db.refresh(role)
-
-    new_user_role = UserRoles(user_id=new_user.id, role_id=role.role_id)
-    db.add(new_user_role)
-    db.commit()
-
-    access_token = create_access_token(new_user, db)
-
-    logger.info(f"POST /register - User registered successfully: {new_user.email}")
-    return {
-        "message": "User registered successfully",
-        "user_id": str(new_user.id),
-        "token_type": "bearer",
-        "user": {
-            "email": new_user.email,
-            "first_name": new_user.first_name,
-            "last_name": new_user.last_name,
-            "roles": ["masyarakat"],
-            "opd_id": str(new_user.opd_id) if new_user.opd_id else None,
-            "no_employee": new_user.no_employee,
-            "division": new_user.division
-        }
-    }
+    return {"access_token": token, "token_type": "bearer"}
 
 
-@router.post("/login")
-async def login(data: LoginModel, db: Session = Depends(database.get_db)):
-    user = await get_user_by_email(data.email, db)
-    if not user or not verify_password(data.password, user.password):
-        raise HTTPException(status_code=401, detail="Invalid email or password")
 
-    from auth.models import Roles, UserRoles
-    roles = (
-        db.query(Roles.role_name)
-        .join(UserRoles, Roles.role_id == UserRoles.role_id)
-        .filter(UserRoles.user_id == user.id)
-        .all()
-    )
-    role_names = [r.role_name for r in roles] if roles else ["user"]
+@router.post("/login/masyarakat", response_model=TokenResponse)
+def login_user(payload: UserLogin, db: Session = Depends(get_db)):
+    user = db.query(Users).filter(Users.email == payload.email).first()
+    if not user or not user.password or not verify_password(payload.password, user.password):
+        raise HTTPException(status_code=401, detail="Email atau password salah")
 
-    access_token = create_access_token(user, db)
-    refresh_token = create_refresh_token(str(user.id), db)
+    token = create_access_token(user, db)
 
-    return {
-        "access_token": access_token,
-        "refresh_token": refresh_token,
-        "token_type": "bearer",
-        "user": {
-            "email": user.email,
-            "first_name": user.first_name,
-            "last_name": user.last_name,
-            "roles": role_names
-        }
-    }
+    return {"access_token": token, "token_type": "bearer"}
+
+
+
+# @router.post("/register")
+# async def register(data: RegisterModel, db: Session = Depends(database.get_db)):
+#     logger.info(f"POST /register - Register request for email: {data.email}")
+    
+#     existing_user = db.query(Users).filter(Users.email == data.email).first()
+#     if existing_user:
+#         return {"error": "Email already registered"}
+    
+#     hashed_pw = hash_password(data.password)
+#     new_user = Users(
+#         email=data.email,
+#         password=hashed_pw,
+#         first_name=data.first_name,
+#         last_name=data.last_name,
+#         phone_number=data.phone_number,
+#         opd_id=data.opd_id,
+#         nik=data.nik,
+#         birth_date=data.birth_date,
+#         address=data.address,
+#         no_employee=data.no_employee,
+#         jabatan=data.jabatan,
+#         division=data.division,
+#         start_date=data.start_date
+#     )
+#     db.add(new_user)
+#     db.commit()
+#     db.refresh(new_user)
+
+#     from auth.models import Roles, UserRoles
+
+#     role = db.query(Roles).filter(Roles.role_name == "masyarakat").first()
+#     if not role:
+#         role = Roles(role_name="masyarakat", description="Default role for new users")
+#         db.add(role)
+#         db.commit()
+#         db.refresh(role)
+
+#     new_user_role = UserRoles(user_id=new_user.id, role_id=role.role_id)
+#     db.add(new_user_role)
+#     db.commit()
+
+#     access_token = create_access_token(new_user, db)
+
+#     logger.info(f"POST /register - User registered successfully: {new_user.email}")
+#     return {
+#         "message": "User registered successfully",
+#         "user_id": str(new_user.id),
+#         "token_type": "bearer",
+#         "user": {
+#             "email": new_user.email,
+#             "first_name": new_user.first_name,
+#             "last_name": new_user.last_name,
+#             "roles": ["masyarakat"],
+#             "opd_id": str(new_user.opd_id) if new_user.opd_id else None,
+#             "no_employee": new_user.no_employee,
+#             "division": new_user.division
+#         }
+#     }
+
+# @router.post("/login")
+# async def login(data: LoginModel, db: Session = Depends(database.get_db)):
+#     user = await get_user_by_email(data.email, db)
+#     if not user or not verify_password(data.password, user.password):
+#         raise HTTPException(status_code=401, detail="Invalid email or password")
+
+#     from auth.models import Roles, UserRoles
+#     roles = (
+#         db.query(Roles.role_name)
+#         .join(UserRoles, Roles.role_id == UserRoles.role_id)
+#         .filter(UserRoles.user_id == user.id)
+#         .all()
+#     )
+#     role_names = [r.role_name for r in roles] if roles else ["user"]
+
+#     access_token = create_access_token(user, db)
+#     refresh_token = create_refresh_token(str(user.id), db)
+
+#     return {
+#         "access_token": access_token,
+#         "refresh_token": refresh_token,
+#         "token_type": "bearer",
+#         "user": {
+#             "email": user.email,
+#             "first_name": user.first_name,
+#             "last_name": user.last_name,
+#             "roles": role_names
+#         }
+#     }
 
 
 @router.post("/refresh")
@@ -268,70 +304,47 @@ async def refresh_token(refresh_token: str, db: Session = Depends(get_db)):
         "token_type": "bearer"
     }
 
-@router.get("/profile", response_model=UserProfileSchema)
-async def get_profile(
-    current_user: dict = Depends(get_current_user_masyarakat), 
-    db: Session = Depends(get_db)
-):
-    user = db.query(Users).filter(Users.id == current_user["id"]).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    
-    roles = (
-        db.query(Roles.role_name)
-        .join(UserRoles, Roles.role_id == UserRoles.role_id)
-        .filter(UserRoles.user_id == user.id)
-        .all()
-    )
-    role_names = [r.role_name for r in roles]
-
-    opd_name = None
-    if user.opd_id:
-        opd = db.query(Opd).filter(Opd.opd_id == user.opd_id).first()
-        opd_name = opd.opd_name if opd else None
-
+@router.get("/me")
+async def get_profile(current_user: dict = Depends(get_current_user)):
+    """
+    Endpoint untuk melihat data user hasil get_current_user.
+    """
     return {
-        "id": user.id,
-        "email": user.email,
-        "first_name": user.first_name,
-        "last_name": user.last_name,
-        "phone_number": user.phone_number,
-        "birth_date": user.birth_date,
-        "address": user.address,
-        "jabatan": user.jabatan,
-        "start_date": user.start_date,
-        "profile_url": user.profile_url,
-        "roles": role_names,
-        "opd_id": user.opd_id,
-        "nik": user.nik,
-        "opd_name": opd_name,
-        "no_employee": user.no_employee,
-        "division": user.division
+        "message": "Success",
+        "data": current_user
     }
 
-@router.put("/profile", response_model=UserProfileSchema)
+
+@router.get("/me/masyarakat", summary="Get current logged-in user (Masyarakat)")
+def read_current_user(current_user: dict = Depends(get_current_user_masyarakat)):
+    user = current_user.copy()
+
+    if user.get("profile_url"):
+        try:
+            user["profile_url"] = user["profile_url"]
+        except Exception:
+            user["profile_url"] = None
+
+    return user
+
+
+@router.put("/me/masyarakat")
 async def update_profile(
-    first_name: Optional[str] = Form(None),
-    last_name: Optional[str] = Form(None),
-    phone_number: Optional[str] = Form(None),
-    birth_date: Optional[date] = Form(None),
-    address: Optional[str] = Form(None),
+    full_name: str = Form(None),
+    phone_number: str = Form(None),
+    address: str = Form(None),
     file: UploadFile = File(None),
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(get_current_user_masyarakat),
     db: Session = Depends(get_db)
 ):
     user = db.query(Users).filter(Users.id == current_user["id"]).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    if first_name is not None:
-        user.first_name = first_name
-    if last_name is not None:
-        user.last_name = last_name
+    if full_name is not None:
+        user.full_name = full_name
     if phone_number is not None:
         user.phone_number = phone_number
-    if birth_date is not None:
-        user.birth_date = birth_date
     if address is not None:
         user.address = address
 
@@ -345,30 +358,71 @@ async def update_profile(
             content_type = "application/octet-stream"
 
         supabase.storage.from_("avatar").upload(file_path, file_data, {"content-type": content_type})
-
-        public_url = supabase.storage.from_("avatar").get_public_url(file_path) 
+        public_url = supabase.storage.from_("avatar").get_public_url(file_path)
         user.profile_url = public_url
 
     db.commit()
     db.refresh(user)
 
-    roles = [r.role_name for r in db.query(Roles.role_name)
-             .join(UserRoles, Roles.role_id == UserRoles.role_id)
-             .filter(UserRoles.user_id == user.id).all()]
-
     return {
         "id": user.id,
-        "email": user.email,
-        "first_name": user.first_name,
-        "last_name": user.last_name,
+        "full_name": user.full_name,
         "phone_number": user.phone_number,
-        "birth_date": user.birth_date,
         "address": user.address,
-        "profile_url": user.profile_url,
-        "roles": roles,
-        "opd_id": user.opd_id,
-        "no_employee": user.no_employee,
-        "division": user.division,
-        "jabatan": user.jabatan,
-        "start_date": user.start_date
+        "profile_url": user.profile_url
+    }
+
+@router.put("/me/masyarakat/password")
+def change_password(
+    old_password: str = Form(...),
+    new_password: str = Form(...),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user_masyarakat)
+):
+    user = db.query(Users).filter(Users.id == current_user["id"]).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if not user.password or not verify_password(old_password, user.password):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Password lama salah")
+
+    user.password = hash_password(new_password)
+    db.commit()
+    db.refresh(user)
+
+    return {
+        "message": "Password berhasil diubah"
+    }
+
+@router.delete("/me/masyarakat/avatar", summary="Hapus profile picture")
+def delete_profile_picture(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user_masyarakat)
+):
+    user = db.query(Users).filter(Users.id == current_user["id"]).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if not user.profile_url:
+        raise HTTPException(status_code=400, detail="User tidak memiliki profile picture")
+
+    # ambil file path dari URL
+    file_path = user.profile_url.split("/")[-1]  # asumsi nama file di akhir URL
+
+    try:
+        # hapus file di Supabase storage
+        response = supabase.storage.from_("avatar").remove([file_path])
+        # Supabase mengembalikan list, jika kosong berarti sukses
+        if response:  
+            raise HTTPException(status_code=500, detail=f"Gagal hapus file: {response}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Gagal hapus file: {str(e)}")
+
+    # hapus URL di DB
+    user.profile_url = None
+    db.commit()
+    db.refresh(user)
+
+    return {
+        "message": "Profile picture berhasil dihapus"
     }
