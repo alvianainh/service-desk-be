@@ -64,13 +64,11 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 async def create_tag(
     data: TagCreate,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)  # ambil user lewat SSO
+    current_user: dict = Depends(get_current_user) 
 ):
-    # cek role user, sekarang role ada di current_user["role_name"]
     if current_user.get("role_name") != "admin dinas":
         raise HTTPException(status_code=403, detail="Unauthorized: Only admin_opd can create tags")
 
-    # cek tag sudah ada atau belum
     existing_tag = db.query(Tags).filter(Tags.tag_name == data.tag_name).first()
     if existing_tag:
         raise HTTPException(status_code=400, detail="Tag dengan nama ini sudah ada")

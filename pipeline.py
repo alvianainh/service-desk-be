@@ -406,19 +406,15 @@ def delete_profile_picture(
     if not user.profile_url:
         raise HTTPException(status_code=400, detail="User tidak memiliki profile picture")
 
-    # ambil file path dari URL
-    file_path = user.profile_url.split("/")[-1]  # asumsi nama file di akhir URL
+    file_path = user.profile_url.split("/")[-1] 
 
     try:
-        # hapus file di Supabase storage
         response = supabase.storage.from_("avatar").remove([file_path])
-        # Supabase mengembalikan list, jika kosong berarti sukses
         if response:  
             raise HTTPException(status_code=500, detail=f"Gagal hapus file: {response}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Gagal hapus file: {str(e)}")
 
-    # hapus URL di DB
     user.profile_url = None
     db.commit()
     db.refresh(user)

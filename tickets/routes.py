@@ -170,7 +170,7 @@ async def create_public_report(
     else:
         next_number = "0001"
 
-    ticket_code = f"SVD-PO-{next_number}-P"
+    ticket_code = f"SVD-PO-{next_number}-PG"
 
     new_ticket = models.Tickets(
         ticket_id=ticket_uuid,
@@ -281,7 +281,7 @@ async def create_public_report_masyarakat(
     else:
         next_number = "0001"
 
-    ticket_code = f"SVD-PO-{next_number}-M"
+    ticket_code = f"SVD-PO-{next_number}-MA"
 
     new_ticket = Tickets(
         ticket_id=ticket_uuid,

@@ -75,7 +75,7 @@ def hash_password(password: str) -> str:
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    truncated = plain_password.encode("utf-8")[:72]  # keep as bytes
+    truncated = plain_password.encode("utf-8")[:72] 
     return pwd_context.verify(truncated, hashed_password)
 
 def create_access_token_simple(data: dict, expires_delta: timedelta = None) -> str:

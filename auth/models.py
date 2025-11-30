@@ -82,19 +82,16 @@ class Users(Base):
 
     address = Column(String, nullable=True)
 
-    # relasi ke tabel opd (FK)
     # opd_id = Column(UUID(as_uuid=True), ForeignKey("opd.opd_id"), nullable=True)
     opd_id_asset = Column(Integer, nullable=True)
     role_id = Column(BigInteger, ForeignKey("roles.role_id"), nullable=True)
     opd_id = Column(Integer, ForeignKey("dinas.id"), nullable=True)
 
-    # kolom dari API aset/SO
     user_id_asset = Column(String, nullable=True)
     username_asset = Column(String, nullable=True)
     role_id_asset = Column(String, nullable=True)
     # role_name_asset = Column(String, nullable=True)
 
-    # relationships
     # user_roles = relationship("UserRoles", back_populates="user")
     role = relationship("Roles", back_populates="users")
     # opd = relationship("Opd", back_populates="users")
@@ -109,10 +106,8 @@ class Opd(Base):
     description = Column(Text, nullable=True)
     file_path = Column(Text, nullable=True)
 
-    # kolom baru dari ASET
     id_aset = Column(Integer, unique=True, nullable=True)
 
-    # relasi dengan Users (jika user punya opd_id)
     # users = relationship("Users", back_populates="opd")
 
 class Articles(Base):
@@ -161,7 +156,7 @@ class RefreshTokens(Base):
 class Dinas(Base):
     __tablename__ = "dinas"
 
-    id = Column(Integer, primary_key=True, autoincrement=False)  # pakai ID aset
+    id = Column(Integer, primary_key=True, autoincrement=False)
     nama = Column(String, nullable=False)
     created_at = Column(DateTime, nullable=True)
     updated_at = Column(DateTime, nullable=True)
