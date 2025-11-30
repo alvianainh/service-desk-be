@@ -70,7 +70,6 @@ class TicketCreateSchema(BaseModel):
     request_type: Optional[str] = None
     ticket_source: Optional[str] = "masyarakat"
 
-    # file URL array (karena bisa lebih dari satu attachment)
     file_urls: Optional[List[str]] = []
 
 class TicketAttachmentSchema(BaseModel):
@@ -107,7 +106,6 @@ class TicketForSeksiSchema(BaseModel):
     additional_info: Optional[str]
     request_type: Optional[str]
 
-    # Data aset dari endpoint aset (typed)
     asset_aset_id: Optional[int]
     asset_kode_bmd: Optional[str]
     asset_nomor_seri: Optional[str]

@@ -64,10 +64,9 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 async def create_tag(
     data: TagCreate,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user) 
 ):
-    roles = current_user.get("roles", [])
-    if "admin_opd" not in roles:
+    if current_user.get("role_name") != "admin dinas":
         raise HTTPException(status_code=403, detail="Unauthorized: Only admin_opd can create tags")
 
     existing_tag = db.query(Tags).filter(Tags.tag_name == data.tag_name).first()
@@ -80,6 +79,7 @@ async def create_tag(
     db.refresh(new_tag)
 
     return new_tag
+
 
 
 @router.get("/tags", response_model=List[TagResponse])
@@ -101,9 +101,9 @@ async def create_article(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
-    roles = current_user.get("roles", [])
-    if "admin_opd" not in roles:
-        raise HTTPException(status_code=403, detail="Unauthorized: Only admin_opd can create articles")
+    roles = current_user.get("role_name", [])
+    if "admin dinas" not in roles:
+        raise HTTPException(status_code=403, detail="Unauthorized: Only admin dinas can create articles")
 
     if not cover_file and not cover_url:
         raise HTTPException(status_code=400, detail="Harus menyertakan file cover atau URL cover")
@@ -174,12 +174,12 @@ async def update_article(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
-    roles = current_user.get("roles", [])
+    roles = current_user.get("role_name", [])
 
-    if "admin_opd" not in roles:
+    if "admin dinas" not in roles:
         raise HTTPException(
             status_code=403,
-            detail="Unauthorized: Only admin_opd can update articles"
+            detail="Unauthorized: Only admin dinas can update articles"
         )
 
     article = db.query(Articles).filter(Articles.article_id == article_id).first()
@@ -252,9 +252,9 @@ async def verify_article(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
-    roles = current_user.get("roles", [])
+    roles = current_user.get("role_name", [])
 
-    if "admin_kota" not in roles:
+    if "diskominfo" not in roles:
         raise HTTPException(status_code=403, detail="Unauthorized: Only admin_kota can verify articles")
 
     article = db.query(Articles).filter(Articles.article_id == article_id).first()
@@ -298,8 +298,7 @@ async def get_public_articles(db: Session = Depends(get_db)):
         if a.makes_by:
             author_data = {
                 "user_id": str(a.makes_by.id),
-                "first_name": a.makes_by.first_name,
-                "last_name": a.makes_by.last_name,
+                "full_name": a.makes_by.full_name,
                 "email": a.makes_by.email
             }
 
@@ -353,8 +352,8 @@ async def get_all_articles(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
-    roles = current_user.get("roles", [])
-    if "admin_kota" not in roles:
+    roles = current_user.get("role_name", [])
+    if "diskominfo" not in roles:
         raise HTTPException(status_code=403, detail="Unauthorized: Only admin_kota can access this data")
 
     articles = (

@@ -1,15 +1,15 @@
 import logging
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status
 from sqlalchemy.orm import Session
 from datetime import datetime
 from . import models, schemas
 from auth.database import get_db
-from auth.auth import get_current_user, get_user_by_email
+from auth.auth import get_current_user, get_user_by_email, get_current_user_masyarakat
 from tickets import models, schemas
 from tickets.models import Tickets, TicketAttachment, TicketCategories, TicketUpdates
 from tickets.schemas import TicketCreateSchema, TicketResponseSchema, TicketCategorySchema, TicketForSeksiSchema, TicketTrackResponse
 import uuid
-from auth.models import Opd
+from auth.models import Opd, Dinas, Roles
 import os
 from supabase import create_client, Client
 from sqlalchemy import text
@@ -106,38 +106,25 @@ def map_role_to_ticket_source(role_name: str):
 
     return "masyarakat"
 
-@router.post("/pelaporan-online")
+@router.post("/pelaporan-online", summary="Buat laporan online via SSO")
 async def create_public_report(
-    id_aset_opd: int = Form(...),     
-    asset_id: int = Form(...),      
+    id_aset_opd: int = Form(...),
+    asset_id: int = Form(...),
     title: Optional[str] = Form(None),
-    # category_id: str = Form(...),
     description: str = Form(...),
     desired_resolution: Optional[str] = Form(None),
     files: Optional[List[UploadFile]] = File(None),
-
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
 
-    # local_opd = db.query(models.Opd).filter(
-    #     models.Opd.id_aset == id_aset_opd
-    # ).first()
-
-    # if not local_opd:
-    #     raise HTTPException(
-    #         status_code=400,
-    #         detail="OPD belum tersedia di sistem. Minta admin sync OPD atau upload icon."
-    #     )
-
-    role_asset_id = int(current_user.get("role_aset_id"))
-    role_name = await get_role_name_from_asset(role_asset_id)
-    ticket_source = role_name
-
-
     token = current_user.get("token")
     if not token:
         raise HTTPException(status_code=401, detail="Token SSO tidak tersedia")
+
+    role_id_asset = int(current_user["role_id"])
+    role = db.query(Roles).filter(Roles.role_id == role_id_asset).first()
+    role_name = role.role_name if role else "pegawai"
 
     async with aiohttp.ClientSession() as session:
         async with session.get(
@@ -153,18 +140,9 @@ async def create_public_report(
         raise HTTPException(400, "Format response OPD dari API ASET tidak valid")
 
     aset = await fetch_asset_from_api(token, asset_id)
-
-    asset_opd_id = (
-        aset.get("dinas_id") or
-        aset.get("dinas", {}).get("id") 
-    )
-
+    asset_opd_id = aset.get("dinas_id") or aset.get("dinas", {}).get("id")
     if str(asset_opd_id) != str(id_aset_opd):
-        raise HTTPException(
-            status_code=400,
-            detail="Asset tidak berada di OPD yang dipilih"
-        )
-
+        raise HTTPException(400, "Asset tidak berada di OPD yang dipilih")
 
     asset_kode_bmd = aset.get("kode_bmd")
     asset_nomor_seri = aset.get("nomor_seri")
@@ -172,82 +150,192 @@ async def create_public_report(
     asset_kategori = aset.get("kategori")
     asset_subkategori_id = aset.get("asset_barang", {}).get("sub_kategori", {}).get("id")
     asset_jenis = aset.get("jenis_asset")
-    asset_lokasi = aset.get("lokasi") 
-
+    asset_lokasi = aset.get("lokasi")
 
     ticket_uuid = uuid4()
+
+    request_type = "pelaporan_online"
+
+    latest_ticket = db.query(models.Tickets)\
+        .filter(models.Tickets.request_type == request_type)\
+        .order_by(models.Tickets.created_at.desc())\
+        .first()
+
+    if latest_ticket and latest_ticket.ticket_code:
+        try:
+            last_number = int(latest_ticket.ticket_code.split("-")[2])
+        except:
+            last_number = 0
+        next_number = f"{last_number + 1:04d}"
+    else:
+        next_number = "0001"
+
+    ticket_code = f"SVD-PO-{next_number}-PG"
 
     new_ticket = models.Tickets(
         ticket_id=ticket_uuid,
         title=title,
         description=description,
-        additional_info=desired_resolution,
+        expected_resolution=desired_resolution,
         status="Open",
         created_at=datetime.utcnow(),
-        # opd_id=local_opd.opd_id,
-        # category_id=UUID(category_id),
         creates_id=UUID(current_user["id"]),
-        ticket_source =ticket_source,
         ticket_stage="user_submit",
         opd_id_asset=opd_id_value,
-
-        asset_aset_id=asset_id,
-        asset_kode_bmd=asset_kode_bmd,
-        asset_nomor_seri=asset_nomor_seri,
-        asset_nama=asset_nama,
-        asset_kategori=asset_kategori,
-        asset_subkategori_id=asset_subkategori_id,
-        asset_jenis=asset_jenis,
-        asset_lokasi=asset_lokasi,     
-        asset_snapshot=aset         
+        opd_id_tickets=opd_id_value, 
+        asset_id=asset_id,
+        kode_bmd_asset=asset_kode_bmd,
+        nomor_seri_asset=asset_nomor_seri,
+        nama_asset=asset_nama,
+        kategori_asset=asset_kategori,
+        subkategori_id_asset=asset_subkategori_id,
+        jenis_asset=asset_jenis,
+        lokasi_asset=asset_lokasi,
+        metadata_asset=aset,
+        role_id_source=role_id_asset,
+        request_type=request_type,
+        ticket_code=ticket_code 
     )
-
     db.add(new_ticket)
     db.commit()
     db.refresh(new_ticket)
+
     new_update = models.TicketUpdates(
         status_change=new_ticket.status,
         notes="Tiket dibuat melalui pelaporan online",
         makes_by_id=UUID(current_user["id"]),
         ticket_id=new_ticket.ticket_id
-        # opd_id=None
     )
     db.add(new_update)
     db.commit()
 
-
     uploaded_files = []
-
     if files:
         for file in files:
             try:
                 file_url = upload_supabase_file("docs", ticket_uuid, file)
-
                 new_attach = models.TicketAttachment(
                     attachment_id=uuid4(),
                     has_id=ticket_uuid,
                     uploaded_at=datetime.utcnow(),
                     file_path=file_url
                 )
-
                 db.add(new_attach)
                 db.commit()
-
                 uploaded_files.append(file_url)
-
             except Exception as e:
                 raise HTTPException(
                     status_code=500,
                     detail=f"Gagal upload file {file.filename}: {str(e)}"
                 )
 
+    return {
+        "message": "Laporan berhasil dibuat",
+        "ticket_id": str(ticket_uuid),
+        "ticket_code": new_ticket.ticket_code, 
+        "status": "Open",
+        "asset": aset,
+        "opd_aset": opd_aset,
+        "uploaded_files": uploaded_files
+    }
+
+
+
+@router.post("/pelaporan-online-masyarakat")
+async def create_public_report_masyarakat(
+    title: Optional[str] = Form(None),
+    id_opd: int = Form(...),
+    description: str = Form(...),
+    files: Optional[List[UploadFile]] = File(None),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user_masyarakat)
+):
+    if current_user.get("role_name", "").lower() != "masyarakat":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Hanya masyarakat yang dapat membuat laporan ini"
+        )
+
+    if not description.strip():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Kolom 'description' wajib diisi")
+
+    dinas = db.query(Dinas).filter(Dinas.id == id_opd).first()
+    if not dinas:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Dinas tidak ditemukan di sistem")
+
+    ticket_uuid = uuid4()
+
+    request_type = "pelaporan_online"
+
+    latest_ticket = db.query(models.Tickets)\
+        .filter(models.Tickets.request_type == request_type)\
+        .order_by(models.Tickets.created_at.desc())\
+        .first()
+
+    if latest_ticket and latest_ticket.ticket_code:
+        try:
+            last_number = int(latest_ticket.ticket_code.split("-")[2])
+        except:
+            last_number = 0
+        next_number = f"{last_number + 1:04d}"
+    else:
+        next_number = "0001"
+
+    ticket_code = f"SVD-PO-{next_number}-MA"
+
+    new_ticket = Tickets(
+        ticket_id=ticket_uuid,
+        title=title,
+        description=description,
+        status="Open",
+        created_at=datetime.utcnow(),
+        updated_at=datetime.utcnow(),
+        creates_id=current_user.get("id"),
+        request_type=request_type,
+        ticket_stage="user_submit",
+        opd_id_asset=None,                
+        opd_id_tickets=dinas.id,        
+        role_id_source=current_user.get("role_id"),
+        ticket_code=ticket_code
+    )
+    db.add(new_ticket)
+
+    new_update = TicketUpdates(
+        status_change=new_ticket.status,
+        notes="Tiket dibuat melalui pelaporan online masyarakat",
+        makes_by_id=current_user.get("id"),
+        ticket_id=new_ticket.ticket_id
+    )
+    db.add(new_update)
+
+    db.commit()
+    db.refresh(new_ticket)
+
+    uploaded_files = []
+    if files:
+        for file in files:
+            try:
+                file_url = upload_supabase_file("docs", str(ticket_uuid), file)
+                new_attach = TicketAttachment(
+                    attachment_id=uuid4(),
+                    has_id=ticket_uuid,
+                    uploaded_at=datetime.utcnow(),
+                    file_path=file_url
+                )
+                db.add(new_attach)
+                uploaded_files.append(file_url)
+            except Exception as e:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=f"Gagal upload file {file.filename}: {str(e)}"
+                )
+        db.commit()  
 
     return {
         "message": "Laporan berhasil dibuat",
         "ticket_id": str(ticket_uuid),
-        "status": "Open",
-        "asset": aset,
-        "opd_aset": opd_aset,
+        "ticket_code": new_ticket.ticket_code, 
+        "status": new_ticket.status,
         "uploaded_files": uploaded_files
     }
 
