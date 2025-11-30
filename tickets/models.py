@@ -91,6 +91,7 @@ class Tickets(Base):
     opd_id_asset = Column(Integer, nullable=True)
     # opd_id_tickets = Column(Integer, nullable=True)
     # role_id_source = Column(Integer, nullable=True)
+    lokasi_kejadian = Column(String(50), nullable=True)
 
     asset_id = Column(Integer, nullable=True)
     kode_bmd_asset = Column(String, nullable=True)
