@@ -106,11 +106,12 @@ def map_role_to_ticket_source(role_name: str):
 
     return "masyarakat"
 
-@router.post("/pelaporan-online", summary="Buat laporan online via SSO")
+@router.post("/pelaporan-online")
 async def create_public_report(
-    id_aset_opd: int = Form(...),
+    # id_aset_opd: int = Form(...),
     asset_id: int = Form(...),
     title: Optional[str] = Form(None),
+    lokasi_kejadian: Optional[str] = Form(None),
     description: str = Form(...),
     desired_resolution: Optional[str] = Form(None),
     files: Optional[List[UploadFile]] = File(None),
@@ -126,23 +127,33 @@ async def create_public_report(
     role = db.query(Roles).filter(Roles.role_id == role_id_asset).first()
     role_name = role.role_name if role else "pegawai"
 
-    async with aiohttp.ClientSession() as session:
-        async with session.get(
-            f"https://arise-app.my.id/api/dinas/{id_aset_opd}",
-            headers={"Authorization": f"Bearer {token}"}
-        ) as res:
-            if res.status != 200:
-                raise HTTPException(400, "OPD tidak ditemukan di ASET")
-            opd_aset = await res.json()
-
-    opd_id_value = opd_aset.get("data", {}).get("id")
-    if not opd_id_value:
-        raise HTTPException(400, "Format response OPD dari API ASET tidak valid")
+    # async with aiohttp.ClientSession() as session:
+    #     async with session.get(
+    #         f"https://arise-app.my.id/api/dinas/{id_aset_opd}",
+    #         headers={"Authorization": f"Bearer {token}"}
+    #     ) as res:
+    #         if res.status != 200:
+    #             raise HTTPException(400, "OPD tidak ditemukan di ASET")
+    #         opd_aset = await res.json()
 
     aset = await fetch_asset_from_api(token, asset_id)
-    asset_opd_id = aset.get("dinas_id") or aset.get("dinas", {}).get("id")
-    if str(asset_opd_id) != str(id_aset_opd):
-        raise HTTPException(400, "Asset tidak berada di OPD yang dipilih")
+
+    opd_id_value = aset.get("dinas_id") or aset.get("dinas", {}).get("id")
+    if not opd_id_value:
+        raise HTTPException(400, "Asset tidak memiliki OPD")
+
+    # if not opd_id_value:
+    #     raise HTTPException(400, "Asset tidak memiliki OPD")
+
+    # opd_id_value = opd_aset.get("data", {}).get("id")
+    # if not opd_id_value:
+    #     raise HTTPException(400, "Format response OPD dari API ASET tidak valid")
+
+    # aset = await fetch_asset_from_api(token, asset_id)
+    # asset_opd_id = aset.get("dinas_id") or aset.get("dinas", {}).get("id")
+
+    # if str(asset_opd_id) != str(id_aset_opd):
+    #     raise HTTPException(400, "Asset tidak berada di OPD yang dipilih")
 
     asset_kode_bmd = aset.get("kode_bmd")
     asset_nomor_seri = aset.get("nomor_seri")
@@ -191,6 +202,7 @@ async def create_public_report(
         subkategori_id_asset=asset_subkategori_id,
         jenis_asset=asset_jenis,
         lokasi_asset=asset_lokasi,
+        lokasi_kejadian=lokasi_kejadian,
         metadata_asset=aset,
         role_id_source=role_id_asset,
         request_type=request_type,
@@ -235,7 +247,7 @@ async def create_public_report(
         "ticket_code": new_ticket.ticket_code, 
         "status": "Open",
         "asset": aset,
-        "opd_aset": opd_aset,
+        # "opd_aset": opd_aset,
         "uploaded_files": uploaded_files
     }
 
