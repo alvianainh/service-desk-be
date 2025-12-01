@@ -13,6 +13,7 @@ class UserRegister(BaseModel):
     password: str
     full_name: str = None
     phone_number: str = None
+    nik: str = None
     address: str = None
 
 class UserLogin(BaseModel):

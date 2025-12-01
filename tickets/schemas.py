@@ -56,8 +56,8 @@
 #         orm_mode = True
 
 
-from pydantic import BaseModel
-from typing import Optional, List
+from pydantic import BaseModel, Field
+from typing import Optional, List, Literal
 from uuid import UUID
 from datetime import datetime
 
@@ -141,6 +141,14 @@ class TicketCategorySchema(BaseModel):
 
     class Config:
         orm_mode = True
+
+class UpdatePriority(BaseModel):
+    urgency: int = Field(..., ge=1, le=3)
+    impact: int = Field(..., ge=1, le=3)
+
+class ManualPriority(BaseModel):
+    priority: Literal["Low", "Medium", "High", "Critical"]
+
 
 # class TicketTrackResponse(BaseModel):
 #     ticket_id: UUID 

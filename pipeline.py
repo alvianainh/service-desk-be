@@ -162,6 +162,7 @@ async def register_user_route(data: UserRegister, db: Session = Depends(get_db))
         full_name=data.full_name,
         phone_number=data.phone_number,
         address=data.address,
+        nik=data.nik,
         role_id=9 
     )
 
@@ -324,6 +325,8 @@ def read_current_user(current_user: dict = Depends(get_current_user_masyarakat))
             user["profile_url"] = user["profile_url"]
         except Exception:
             user["profile_url"] = None
+
+    user["nik"] = current_user.get("nik")
 
     return user
 
