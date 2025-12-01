@@ -92,6 +92,7 @@ class Tickets(Base):
     # opd_id_tickets = Column(Integer, nullable=True)
     # role_id_source = Column(Integer, nullable=True)
     lokasi_kejadian = Column(String(50), nullable=True)
+    ticket_source = Column(String(20), nullable=True)
 
     asset_id = Column(Integer, nullable=True)
     kode_bmd_asset = Column(String, nullable=True)
@@ -102,7 +103,8 @@ class Tickets(Base):
     jenis_asset = Column(String, nullable=True)
     lokasi_asset = Column(JSON, nullable=True)
     metadata_asset = Column(JSON, nullable=True)
-    ticket_code = Column(String(20), unique=True, nullable=True)
+    ticket_code = Column(String, unique=True, nullable=True)
+    subkategori_nama_asset = Column(String, nullable=True)
 
 
     # Relations
@@ -122,6 +124,9 @@ class Tickets(Base):
     ticket_stage = Column(String(50), nullable=False, default="user_draft")
 
     attachments = relationship("TicketAttachment", back_populates="ticket", cascade="all, delete-orphan")
+    creates_user = relationship("Users", foreign_keys=[creates_id])
+
+
 
     __table_args__ = (
         CheckConstraint(

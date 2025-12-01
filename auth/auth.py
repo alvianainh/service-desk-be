@@ -27,7 +27,7 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 SECRET_KEY = os.getenv("SECRET_KEY")
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60
+ACCESS_TOKEN_EXPIRE_MINUTES = 10080
 REFRESH_TOKEN_EXPIRE_DAYS = 7
 
 # oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
@@ -215,7 +215,8 @@ def get_current_user_masyarakat(
                 Users.address,
                 Users.profile_url,
                 Roles.role_id,
-                Roles.role_name
+                Roles.role_name,
+                Users.nik
             )
             .filter(Users.id == user_id)
             .first()
@@ -232,7 +233,8 @@ def get_current_user_masyarakat(
             "profile_url": user.profile_url,
             "address": user.address,
             "role_id": user.role_id,
-            "role_name": user.role_name
+            "role_name": user.role_name,
+            "nik": user.nik
         }
 
     except PyJWTError:

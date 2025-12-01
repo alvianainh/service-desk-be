@@ -79,6 +79,7 @@ class Users(Base):
     full_name = Column(String, nullable=True)
     phone_number = Column(String, nullable=True)
     profile_url = Column(String, nullable=True)
+    nik = Column(String, nullable=True)
 
     address = Column(String, nullable=True)
 
