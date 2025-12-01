@@ -20,70 +20,64 @@ import aiohttp, os, mimetypes, json
 
 
 
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
-from reportlab.lib.styles import getSampleStyleSheet
-from reportlab.lib.pagesizes import A4
-from reportlab.lib.units import cm
-from reportlab.lib.enums import TA_CENTER
-from reportlab.lib import colors
-from io import BytesIO
+# from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+# from reportlab.lib.styles import getSampleStyleSheet
+# from reportlab.lib.pagesizes import A4
+# from reportlab.lib.units import cm
+# from reportlab.lib.enums import TA_CENTER
+# from reportlab.lib import colors
+# from io import BytesIO
 
 
-def generate_ticket_pdf(ticket):
-    buffer = BytesIO()
+# def generate_ticket_pdf(ticket):
+#     buffer = BytesIO()
 
-    # Setup PDF
-    doc = SimpleDocTemplate(
-        buffer,
-        pagesize=A4,
-        leftMargin=2 * cm,
-        rightMargin=2 * cm,
-        topMargin=2 * cm,
-        bottomMargin=2 * cm,
-    )
+#     doc = SimpleDocTemplate(
+#         buffer,
+#         pagesize=A4,
+#         leftMargin=2 * cm,
+#         rightMargin=2 * cm,
+#         topMargin=2 * cm,
+#         bottomMargin=2 * cm,
+#     )
 
-    styles = getSampleStyleSheet()
-    title_style = styles['Heading1']
-    title_style.alignment = TA_CENTER
+#     styles = getSampleStyleSheet()
+#     title_style = styles['Heading1']
+#     title_style.alignment = TA_CENTER
 
-    normal = styles['Normal']
-    h2 = styles['Heading2']
+#     normal = styles['Normal']
+#     h2 = styles['Heading2']
 
-    elements = []
+#     elements = []
 
-    # Judul
-    elements.append(Paragraph("Laporan Tiket Pelaporan", title_style))
-    elements.append(Spacer(1, 0.5 * cm))
+#     elements.append(Paragraph("Laporan Tiket Pelaporan", title_style))
+#     elements.append(Spacer(1, 0.5 * cm))
 
-    # Informasi tiket
-    elements.append(Paragraph(f"<b>Kode Tiket:</b> {ticket['ticket_code']}", normal))
-    elements.append(Paragraph(f"<b>Judul:</b> {ticket['title']}", normal))
-    elements.append(Paragraph(f"<b>Deskripsi:</b> {ticket['description']}", normal))
-    elements.append(Paragraph(f"<b>Status:</b> {ticket['status']}", normal))
-    elements.append(Paragraph(f"<b>Prioritas:</b> {ticket['priority']}", normal))
-    elements.append(Spacer(1, 0.3 * cm))
+#     elements.append(Paragraph(f"<b>Kode Tiket:</b> {ticket['ticket_code']}", normal))
+#     elements.append(Paragraph(f"<b>Judul:</b> {ticket['title']}", normal))
+#     elements.append(Paragraph(f"<b>Deskripsi:</b> {ticket['description']}", normal))
+#     elements.append(Paragraph(f"<b>Status:</b> {ticket['status']}", normal))
+#     elements.append(Paragraph(f"<b>Prioritas:</b> {ticket['priority']}", normal))
+#     elements.append(Spacer(1, 0.3 * cm))
 
-    elements.append(Paragraph("<hr/>", normal))
-    elements.append(Spacer(1, 0.3 * cm))
+#     elements.append(Paragraph("<hr/>", normal))
+#     elements.append(Spacer(1, 0.3 * cm))
 
-    # Informasi Pelapor
-    elements.append(Paragraph("Informasi Pelapor", h2))
-    elements.append(Paragraph(f"<b>Nama:</b> {ticket['creator']['full_name']}", normal))
-    elements.append(Paragraph(f"<b>Email:</b> {ticket['creator']['email']}", normal))
-    elements.append(Spacer(1, 0.3 * cm))
+#     elements.append(Paragraph("Informasi Pelapor", h2))
+#     elements.append(Paragraph(f"<b>Nama:</b> {ticket['creator']['full_name']}", normal))
+#     elements.append(Paragraph(f"<b>Email:</b> {ticket['creator']['email']}", normal))
+#     elements.append(Spacer(1, 0.3 * cm))
 
-    # Detail Asset
-    elements.append(Paragraph("Detail Asset", h2))
-    elements.append(Paragraph(f"<b>Nama Asset:</b> {ticket['asset']['nama_asset']}", normal))
-    elements.append(Paragraph(f"<b>Kode BMD:</b> {ticket['asset']['kode_bmd']}", normal))
-    elements.append(Paragraph(f"<b>Jenis Asset:</b> {ticket['asset']['jenis_asset']}", normal))
+#     elements.append(Paragraph("Detail Asset", h2))
+#     elements.append(Paragraph(f"<b>Nama Asset:</b> {ticket['asset']['nama_asset']}", normal))
+#     elements.append(Paragraph(f"<b>Kode BMD:</b> {ticket['asset']['kode_bmd']}", normal))
+#     elements.append(Paragraph(f"<b>Jenis Asset:</b> {ticket['asset']['jenis_asset']}", normal))
 
-    # Build PDF
-    doc.build(elements)
+#     doc.build(elements)
 
-    pdf = buffer.getvalue()
-    buffer.close()
-    return pdf
+#     pdf = buffer.getvalue()
+#     buffer.close()
+#     return pdf
 
 
 router = APIRouter()
