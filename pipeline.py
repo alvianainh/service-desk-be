@@ -1,5 +1,5 @@
 import logging
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Header
 from sqlalchemy.orm import Session
 from auth.database import get_db
 # from auth.auth import routes as auth_routes
@@ -47,6 +47,7 @@ ALGORITHM = "HS256"
 REFRESH_TOKEN_EXPIRE_DAYS = 7
 
 SSO_LOGIN_URL = "https://arise-app.my.id/api/login"
+ARISE_ME_URL = "https://arise-app.my.id/api/me"
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -345,15 +346,44 @@ async def refresh_token(refresh_token: str, db: Session = Depends(get_db)):
         "token_type": "bearer"
     }
 
+# @router.get("/me")
+# async def get_profile(current_user: dict = Depends(get_current_user)):
+#     """
+#     Endpoint untuk melihat data user hasil get_current_user.
+#     """
+#     return {
+#         "message": "Success",
+#         "data": current_user
+#     }
+
+
 @router.get("/me")
-async def get_profile(current_user: dict = Depends(get_current_user)):
+async def get_sso_me(current_user: dict = Depends(get_current_user)):
     """
-    Endpoint untuk melihat data user hasil get_current_user.
+    Proxy /me Arise, tapi tokennya pakai token hasil validasi 
+    dari get_current_user
     """
-    return {
-        "message": "Success",
-        "data": current_user
-    }
+    token = current_user["token"]  # <-- token arise yang valid
+
+    async with aiohttp.ClientSession() as session:
+        async with session.get(
+            ARISE_ME_URL,
+            headers={
+                "accept": "application/json",
+                "Authorization": f"Bearer {token}",
+            }
+        ) as response:
+
+            text = await response.text()
+
+            if response.status != 200:
+                raise HTTPException(
+                    status_code=response.status,
+                    detail=f"Error from Arise: {text}",
+                )
+
+            data = await response.json()
+            return data
 
 
 @router.get("/me/masyarakat", summary="Get current logged-in user (Masyarakat)")
