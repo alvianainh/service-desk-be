@@ -216,6 +216,7 @@ def get_current_user_masyarakat(
                 Users.profile_url,
                 Roles.role_id,
                 Roles.role_name,
+                Users.opd_id,
                 Users.nik
             )
             .filter(Users.id == user_id)
@@ -233,6 +234,7 @@ def get_current_user_masyarakat(
             "profile_url": user.profile_url,
             "address": user.address,
             "role_id": user.role_id,
+            "dinas_id": user.opd_id,
             "role_name": user.role_name,
             "nik": user.nik
         }
