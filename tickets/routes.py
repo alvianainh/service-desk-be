@@ -1132,6 +1132,98 @@ def assign_teknisi(
 
 
 
+# TEKNISI
+@router.get("/tickets/teknisi")
+def get_tickets_for_teknisi(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user_masyarakat)
+):
+    if current_user.get("role_name") != "teknisi":
+        raise HTTPException(
+            status_code=403,
+            detail="Akses ditolak: hanya teknisi yang dapat melihat daftar tiket"
+        )
+
+    teknisi_opd_id = current_user.get("dinas_id")
+    teknisi_user_id = current_user.get("id")
+
+    if not teknisi_opd_id:
+        raise HTTPException(
+            status_code=400,
+            detail="User tidak memiliki OPD"
+        )
+
+    allowed_status = ["assigned to teknisi"]
+
+    tickets = (
+        db.query(models.Tickets)
+        .filter(models.Tickets.opd_id_tickets == teknisi_opd_id)
+        .filter(models.Tickets.assigned_teknisi_id == teknisi_user_id)
+        .filter(models.Tickets.status.in_(allowed_status))
+        .order_by(models.Tickets.created_at.desc())
+        .all()
+    )
+
+    attachments = tickets.attachments if hasattr(tickets, "attachments") else []
+
+
+    return {
+        "total": len(tickets),
+        "data": [
+            {
+                "ticket_id": str(t.ticket_id),
+                "ticket_code": t.ticket_code,
+                "title": t.title,
+                "description": t.description,
+                "status": t.status,
+                "priority": t.priority,
+                "created_at": t.created_at,
+                "ticket_source": t.ticket_source,
+                "status_ticket_pengguna": t.status_ticket_pengguna,
+                "status_ticket_seksi": t.status_ticket_seksi,
+                "status_ticket_teknisi": t.status_ticket_teknisi,
+
+                "creator": {
+                    "user_id": str(t.creates_id) if t.creates_id else None,
+                    "full_name": t.creates_user.full_name if t.creates_user else None,
+                    "profile": t.creates_user.profile_url if t.creates_user else None,
+                    "email": t.creates_user.email if t.creates_user else None,
+                },
+
+                "asset": {
+                    "asset_id": t.asset_id,
+                    "nama_asset": t.nama_asset,
+                    "kode_bmd": t.kode_bmd_asset,
+                    "nomor_seri": t.nomor_seri_asset,
+                    "kategori": t.kategori_asset,
+                    "subkategori_id": t.subkategori_id_asset,
+                    "subkategori_nama": t.subkategori_nama_asset,
+                    "jenis_asset": t.jenis_asset,
+                    "lokasi_asset": t.lokasi_asset,
+                    "opd_id_asset": t.opd_id_asset,
+                },
+                "files": [
+                    {
+                        "attachment_id": str(a.attachment_id),
+                        "file_path": a.file_path,
+                        "uploaded_at": a.uploaded_at
+                    }
+                    for a in attachments
+                ]
+            }
+            for t in tickets
+        ]
+    }
+
+
+
+
+
+
+
+
+
+
 
 
 # #BIDANG

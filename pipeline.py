@@ -29,6 +29,7 @@ import os
 from dotenv import load_dotenv
 from datetime import datetime
 from supabase import create_client, Client
+import aiohttp
 
 router = APIRouter()
 # router.include_router(auth_routes.router)
@@ -44,6 +45,8 @@ load_dotenv()
 SECRET_KEY = os.getenv("SECRET_KEY")
 ALGORITHM = "HS256"
 REFRESH_TOKEN_EXPIRE_DAYS = 7
+
+SSO_LOGIN_URL = "https://arise-app.my.id/api/login"
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -76,6 +79,10 @@ class UserProfileUpdateSchema(BaseModel):
     phone_number: Optional[str] = None
     birth_date: Optional[date] = None
     address: Optional[str] = None
+
+class LoginPayload(BaseModel):
+    login: str
+    password: str
 
 
 @router.get("/")
@@ -186,6 +193,39 @@ def login_user(payload: UserLogin, db: Session = Depends(get_db)):
 
     return {"access_token": token, "token_type": "bearer"}
 
+
+@router.post("/login/sso")
+async def login_sso(payload: LoginPayload):
+
+    async with aiohttp.ClientSession() as session:
+        async with session.post(
+            SSO_LOGIN_URL,
+            json={
+                "login": payload.login,
+                "password": payload.password
+            },
+            headers={
+                "accept": "application/json",
+                "Content-Type": "application/json"
+            }
+        ) as response:
+
+            text = await response.text()
+
+            if response.status != 200:
+                raise HTTPException(
+                    status_code=response.status,
+                    detail=f"SSO login failed: {text}"
+                )
+
+            data = await response.json()
+
+            return {
+                "access_token": data.get("access_token"),
+                "token_type": data.get("token_type"),
+                "expires_in": data.get("expires_in"),
+                "user": data.get("user")
+            }
 
 
 # @router.post("/register")
