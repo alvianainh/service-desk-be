@@ -88,6 +88,11 @@ class Users(Base):
     role_id = Column(BigInteger, ForeignKey("roles.role_id"), nullable=True)
     opd_id = Column(Integer, ForeignKey("dinas.id"), nullable=True)
 
+    teknisi_level_id = Column(Integer, ForeignKey("teknisi_levels.id"), nullable=True)
+    teknisi_tag_id = Column(Integer, ForeignKey("teknisi_tags.id"), nullable=True)
+    teknisi_kuota_terpakai = Column(Integer, nullable=True, default=0)
+
+
     user_id_asset = Column(String, nullable=True)
     username_asset = Column(String, nullable=True)
     role_id_asset = Column(String, nullable=True)
@@ -95,6 +100,9 @@ class Users(Base):
 
     # user_roles = relationship("UserRoles", back_populates="user")
     role = relationship("Roles", back_populates="users")
+
+    teknisi_level_obj = relationship("TeknisiLevels", back_populates="users")
+    teknisi_tag_obj = relationship("TeknisiTags", back_populates="users")
     # opd = relationship("Opd", back_populates="users")
 
 

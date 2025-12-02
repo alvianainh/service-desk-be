@@ -60,6 +60,7 @@ from pydantic import BaseModel, Field
 from typing import Optional, List, Literal
 from uuid import UUID
 from datetime import datetime
+from datetime import date
 
 class TicketCreateSchema(BaseModel):
     opd_id: UUID
@@ -149,6 +150,17 @@ class UpdatePriority(BaseModel):
 class ManualPriority(BaseModel):
     priority: Literal["Low", "Medium", "High", "Critical"]
 
+
+class RejectReasonSeksi(BaseModel):
+    reason: str
+
+class RejectReasonBidang(BaseModel):
+    reason: str
+
+class AssignTeknisiSchema(BaseModel):
+    teknisi_id: UUID
+    pengerjaan_awal: date
+    pengerjaan_akhir: date
 
 # class TicketTrackResponse(BaseModel):
 #     ticket_id: UUID 

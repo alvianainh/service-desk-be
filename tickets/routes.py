@@ -1,18 +1,18 @@
 import logging
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status, Response
 from sqlalchemy.orm import Session
-from datetime import datetime
+from datetime import datetime, time
 from . import models, schemas
 from auth.database import get_db
 from auth.auth import get_current_user, get_user_by_email, get_current_user_masyarakat
 from tickets import models, schemas
-from tickets.models import Tickets, TicketAttachment, TicketCategories, TicketUpdates
-from tickets.schemas import TicketCreateSchema, TicketResponseSchema, TicketCategorySchema, TicketForSeksiSchema, TicketTrackResponse, UpdatePriority, ManualPriority
+from tickets.models import Tickets, TicketAttachment, TicketCategories, TicketUpdates, TeknisiTags, TeknisiLevels
+from tickets.schemas import TicketCreateSchema, TicketResponseSchema, TicketCategorySchema, TicketForSeksiSchema, TicketTrackResponse, UpdatePriority, ManualPriority, RejectReasonSeksi, RejectReasonBidang, AssignTeknisiSchema
 import uuid
-from auth.models import Opd, Dinas, Roles
+from auth.models import Opd, Dinas, Roles, Users
 import os
 from supabase import create_client, Client
-from sqlalchemy import text
+from sqlalchemy import text, or_
 import mimetypes
 from uuid import UUID, uuid4
 from typing import Optional, List
@@ -216,7 +216,7 @@ async def create_public_report(
     title: Optional[str] = Form(None),
     lokasi_kejadian: Optional[str] = Form(None),
     description: str = Form(...),
-    expected_resolution_resolution: Optional[str] = Form(None),
+    expected_resolution: Optional[str] = Form(None),
     files: Optional[List[UploadFile]] = File(None),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
@@ -295,6 +295,8 @@ async def create_public_report(
         description=description,
         expected_resolution=expected_resolution,
         status="Open",
+        status_ticket_pengguna="Menunggu Diproses",
+        status_ticket_seksi="Draft",
         created_at=datetime.utcnow(),
         creates_id=UUID(current_user["id"]),
         ticket_stage="Draft",
@@ -407,6 +409,8 @@ async def create_public_report_masyarakat(
         title=title,
         description=description,
         status="Open",
+        status_ticket_pengguna="Menunggu Diproses",
+        status_ticket_seksi="Draft",
         ticket_source="Masyarakat",
         created_at=datetime.utcnow(),
         updated_at=datetime.utcnow(),
@@ -480,10 +484,17 @@ def get_tickets_for_seksi(
             detail="User tidak memiliki OPD"
         )
 
+    allowed_status = [
+        "Open",           
+        "verified by seksi",   
+        "rejected by bidang"   
+    ]
+
     tickets = (
         db.query(models.Tickets)
         .filter(models.Tickets.opd_id_tickets == seksi_opd_id)
-        .filter(models.Tickets.request_type == "pelaporan_online")   # ✅ filter khusus masyarakat
+        .filter(models.Tickets.status.in_(allowed_status))
+        .filter(models.Tickets.request_type == "pelaporan_online")  
         .order_by(models.Tickets.created_at.desc())
         .all()
     )
@@ -497,32 +508,36 @@ def get_tickets_for_seksi(
                 "title": t.title,
                 "description": t.description,
                 "status": t.status,
-                "stage": t.ticket_stage,
+                # "stage": t.ticket_stage,
+                "priority": t.priority,
                 "created_at": t.created_at,
                 "ticket_source": t.ticket_source,
+                "status_ticket_pengguna": t.status_ticket_pengguna,
+                "status_ticket_seksi": t.status_ticket_seksi,
+            
 
-                "opd_id_tickets": t.opd_id_tickets,
-                "lokasi_kejadian": t.lokasi_kejadian,
+            #     "opd_id_tickets": t.opd_id_tickets,
+            #     "lokasi_kejadian": t.lokasi_kejadian,
 
-                "creator": {
-                    "user_id": str(t.creates_id) if t.creates_id else None,
-                    "full_name": t.creates_user.full_name if t.creates_user else None,
-                    "profile": t.creates_user.profile_url if t.creates_user else None,
-                    "email": t.creates_user.email if t.creates_user else None,
-                },
+            #     "creator": {
+            #         "user_id": str(t.creates_id) if t.creates_id else None,
+            #         "full_name": t.creates_user.full_name if t.creates_user else None,
+            #         "profile": t.creates_user.profile_url if t.creates_user else None,
+            #         "email": t.creates_user.email if t.creates_user else None,
+            #     },
 
-                "asset": {
-                    "asset_id": t.asset_id,
-                    "nama_asset": t.nama_asset,
-                    "kode_bmd": t.kode_bmd_asset,
-                    "nomor_seri": t.nomor_seri_asset,
-                    "kategori": t.kategori_asset,
-                    "subkategori_id": t.subkategori_id_asset,
-                    "subkategori_nama": t.subkategori_nama_asset,
-                    "jenis_asset": t.jenis_asset,
-                    "lokasi_asset": t.lokasi_asset,
-                    "opd_id_asset": t.opd_id_asset,
-                }
+            #     "asset": {
+            #         "asset_id": t.asset_id,
+            #         "nama_asset": t.nama_asset,
+            #         "kode_bmd": t.kode_bmd_asset,
+            #         "nomor_seri": t.nomor_seri_asset,
+            #         "kategori": t.kategori_asset,
+            #         "subkategori_id": t.subkategori_id_asset,
+            #         "subkategori_nama": t.subkategori_nama_asset,
+            #         "jenis_asset": t.jenis_asset,
+            #         "lokasi_asset": t.lokasi_asset,
+            #         "opd_id_asset": t.opd_id_asset,
+            #     }
             }
             for t in tickets
         ]
@@ -531,7 +546,7 @@ def get_tickets_for_seksi(
 
 
 # DETAIL SEKSI
-@router.get("/tickets/seksi/{ticket_id}")
+@router.get("/tickets/seksi/detail/{ticket_id}")
 def get_ticket_detail_seksi(
     ticket_id: str,
     db: Session = Depends(get_db),
@@ -550,10 +565,17 @@ def get_ticket_detail_seksi(
             detail="User tidak memiliki OPD"
         )
 
+    allowed_status = [
+        "Open",           
+        "verified by seksi",   
+        "rejected by bidang"   
+    ]
+
     ticket = (
         db.query(models.Tickets)
         .filter(models.Tickets.ticket_id == ticket_id)
         .filter(models.Tickets.opd_id_tickets == seksi_opd_id)
+        .filter(models.Tickets.status.in_(allowed_status))
         .filter(models.Tickets.request_type == "pelaporan_online")
         .first()
     )
@@ -561,7 +583,7 @@ def get_ticket_detail_seksi(
     if not ticket:
         raise HTTPException(
             status_code=404,
-            detail="Tiket tidak ditemukan atau tidak memiliki akses"
+            detail="Tiket tidak ditemukan, sudah terverifikasi bidang atau tidak memiliki akses"
         )
 
     attachments = (
@@ -576,7 +598,7 @@ def get_ticket_detail_seksi(
         "title": ticket.title,
         "description": ticket.description,
         "status": ticket.status,
-        "stage": ticket.ticket_stage,
+        # "stage": ticket.ticket_stage,
         "created_at": ticket.created_at,
         "priority": ticket.priority,
 
@@ -584,6 +606,8 @@ def get_ticket_detail_seksi(
         "lokasi_kejadian": ticket.lokasi_kejadian,
         "expected_resolution": ticket.expected_resolution,
         "ticket_source": ticket.ticket_source,
+        "status_ticket_pengguna": ticket.status_ticket_pengguna,
+        "status_ticket_seksi": ticket.status_ticket_seksi,
         
         "creator": {
             "user_id": str(ticket.creates_id) if ticket.creates_id else None,
@@ -645,11 +669,30 @@ def update_ticket_priority(
             detail="Tiket bukan berasal dari Pegawai, gunakan endpoint /priority/masyarakat."
         )
 
-    if ticket.priority is not None:
+    if ticket.status == "rejected":
         raise HTTPException(
-            status_code=400,
-            detail=f"Prioritas sudah diset menjadi '{ticket.priority}' dan tidak dapat diubah lagi."
+            400,
+            "Tiket sudah ditolak dan tidak dapat diproses lagi."
         )
+
+    if ticket.priority is None and ticket.status != "rejected by bidang":
+        pass
+
+    elif ticket.status == "rejected by bidang":
+        ticket.rejection_reason_bidang = None
+        ticket.status_ticket_seksi = "pending"
+
+    else:
+        raise HTTPException(
+            400,
+            f"Tiket sudah memiliki prioritas '{ticket.priority}' dan tidak bisa diubah lagi."
+        )
+
+    # if ticket.priority is not None:
+    #     raise HTTPException(
+    #         status_code=400,
+    #         detail=f"Prioritas sudah diset menjadi '{ticket.priority}' dan tidak dapat diubah lagi."
+    #     )
 
     urgency = payload.urgency
     impact = payload.impact
@@ -672,6 +715,9 @@ def update_ticket_priority(
     
     ticket.ticket_stage = "pending"
     ticket.status = "verified by seksi"
+    ticket.status_ticket_seksi="pending"
+    ticket.status_ticket_pengguna="proses verifikasi"
+    ticket.verified_seksi_id=current_user.get("id")
 
 
     db.commit()
@@ -709,12 +755,30 @@ def set_priority_masyarakat(
             detail="Tiket bukan berasal dari masyarakat, gunakan endpoint matrix."
         )
 
-
-    if ticket.priority is not None:
+    if ticket.status == "rejected":
         raise HTTPException(
             400,
-            f"Prioritas sudah ditetapkan menjadi '{ticket.priority}' dan tidak dapat diubah lagi."
+            "Tiket sudah ditolak dan tidak dapat diproses lagi."
         )
+
+    if ticket.priority is None and ticket.status != "rejected by bidang":
+        pass
+
+    elif ticket.status == "rejected by bidang":
+        ticket.rejection_reason_bidang = None
+        ticket.status_ticket_seksi = "pending"
+
+    else:
+        raise HTTPException(
+            400,
+            f"Tiket sudah memiliki prioritas '{ticket.priority}' dan tidak bisa diubah lagi."
+        )
+
+    # if ticket.priority is not None:
+    #     raise HTTPException(
+    #         400,
+    #         f"Prioritas sudah ditetapkan menjadi '{ticket.priority}' dan tidak dapat diubah lagi."
+    #     )
 
     valid_priorities = ["low", "medium", "high", "critical"]
     if payload.priority.lower() not in valid_priorities:
@@ -726,6 +790,9 @@ def set_priority_masyarakat(
     ticket.priority = payload.priority.capitalize()  
     ticket.ticket_stage = "pending"
     ticket.status = "verified by seksi"
+    ticket.status_ticket_seksi="pending"
+    ticket.status_ticket_pengguna="proses verifikasi"
+    ticket.verified_seksi_id=current_user.get("id")
 
     db.commit()
     db.refresh(ticket)
@@ -736,6 +803,649 @@ def set_priority_masyarakat(
         "priority": ticket.priority
     }
 
+
+@router.put("/tickets/{ticket_id}/reject")
+def reject_ticket(
+    ticket_id: str,
+    payload: schemas.RejectReasonSeksi,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+
+    if current_user.get("role_name") != "admin dinas":
+        raise HTTPException(
+            403, "Akses ditolak: hanya seksi yang dapat menolak tiket"
+        )
+
+    ticket = db.query(models.Tickets).filter_by(ticket_id=ticket_id).first()
+    if not ticket:
+        raise HTTPException(404, "Tiket tidak ditemukan")
+
+    if ticket.priority is not None or ticket.status == "rejected":
+        raise HTTPException(
+            400,
+            "Tiket sudah diproses set prioritas dan tidak dapat diubah lagi."
+        )
+
+    ticket.status = "rejected"  
+    ticket.ticket_stage = "done" 
+    ticket.status_ticket_pengguna = "tiket ditolak"
+    ticket.status_ticket_seksi = "rejected"
+    ticket.rejection_reason_seksi = payload.reason
+
+    db.commit()
+    db.refresh(ticket)
+
+    return {
+        "message": "Tiket berhasil ditolak",
+        "ticket_id": ticket_id,
+        "status": ticket.status,
+        "reason": ticket.rejection_reason_seksi
+    }
+
+
+
+@router.get("/tickets/seksi/verified-bidang")
+def get_tickets_verified_by_bidang_for_seksi(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+
+    if current_user.get("role_name") != "admin dinas":
+        raise HTTPException(
+            403,
+            "Akses ditolak: hanya seksi yang dapat mengakses daftar tiket ini"
+        )
+
+    seksi_opd_id = current_user.get("dinas_id")
+    if not seksi_opd_id:
+        raise HTTPException(400, "User tidak memiliki OPD")
+
+    tickets = (
+        db.query(models.Tickets)
+        .filter(
+            models.Tickets.opd_id_tickets == seksi_opd_id,
+            or_(
+                models.Tickets.status == "verified by bidang",
+                models.Tickets.status == "assigned to teknisi"
+            ),
+            models.Tickets.request_type == "pelaporan_online"
+        )
+        .order_by(models.Tickets.created_at.desc())
+        .all()
+    )
+
+    result = []
+
+    for t in tickets:
+        attachments = t.attachments if hasattr(t, "attachments") else []
+
+        result.append({
+            "ticket_id": str(t.ticket_id),
+            "ticket_code": t.ticket_code,
+            "title": t.title,
+            "status": t.status,
+            "priority": t.priority,
+            "created_at": t.created_at,
+            "ticket_source": t.ticket_source,
+            "status_ticket_pengguna": t.status_ticket_pengguna,
+            "status_ticket_seksi": t.status_ticket_seksi,
+
+            "opd_id_tickets": t.opd_id_tickets,
+            "lokasi_kejadian": t.lokasi_kejadian,
+
+            "creator": {
+                    "user_id": str(t.creates_id) if t.creates_id else None,
+                    "full_name": t.creates_user.full_name if t.creates_user else None,
+                    "profile": t.creates_user.profile_url if t.creates_user else None,
+                    "email": t.creates_user.email if t.creates_user else None,
+            },
+
+            "asset": {
+                "asset_id": t.asset_id,
+                "nama_asset": t.nama_asset,
+                "kode_bmd": t.kode_bmd_asset,
+                "nomor_seri": t.nomor_seri_asset,
+                "kategori": t.kategori_asset,
+                "subkategori_id": t.subkategori_id_asset,
+                "subkategori_nama": t.subkategori_nama_asset,
+                "jenis_asset": t.jenis_asset,
+                "lokasi_asset": t.lokasi_asset,
+                "opd_id_asset": t.opd_id_asset,
+            },
+
+            "files": [
+                {
+                    "attachment_id": str(a.attachment_id),
+                    "file_path": a.file_path,
+                    "uploaded_at": a.uploaded_at
+                }
+                for a in attachments
+            ]
+        })
+
+    return {
+        "total": len(result),
+        "data": result
+    }
+
+@router.get("/tickets/seksi/verified-bidang/{ticket_id}")
+def get_ticket_detail_verified_by_bidang_for_seksi(
+    ticket_id: str,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+
+    if current_user.get("role_name") != "admin dinas":
+        raise HTTPException(
+            403,
+            "Akses ditolak: hanya seksi yang dapat mengakses detail tiket ini"
+        )
+
+    seksi_opd_id = current_user.get("dinas_id")
+    if not seksi_opd_id:
+        raise HTTPException(400, "User tidak memiliki OPD")
+
+    try:
+        uuid_obj = uuid.UUID(ticket_id)
+    except ValueError:
+        raise HTTPException(400, "ticket_id tidak valid (bukan UUID)")
+
+    ticket = (
+        db.query(models.Tickets)
+        .filter(
+            models.Tickets.ticket_id == uuid_obj,
+            models.Tickets.opd_id_tickets == seksi_opd_id,
+            models.Tickets.status == "verified by bidang",
+            models.Tickets.request_type == "pelaporan_online"
+        )
+        .first()
+    )
+
+    if not ticket:
+        raise HTTPException(404, "Tiket tidak ditemukan atau tidak memiliki akses")
+
+    attachments = ticket.attachments if hasattr(ticket, "attachments") else []
+
+    return {
+        "ticket_id": str(ticket.ticket_id),
+        "ticket_code": ticket.ticket_code,
+        "title": ticket.title,
+        "description": ticket.description,
+        "priority": ticket.priority,
+        "status": ticket.status,
+        "created_at": ticket.created_at,
+        "updated_at": ticket.updated_at,
+
+        "lokasi_kejadian": ticket.lokasi_kejadian,
+        "opd_id_tickets": ticket.opd_id_tickets,
+
+        "creator": {
+            "user_id": str(ticket.creates_id) if ticket.creates_id else None,
+            "full_name": ticket.creates_user.full_name if ticket.creates_user else None,
+            "profile": ticket.creates_user.profile_url if ticket.creates_user else None,
+            "email": ticket.creates_user.email if ticket.creates_user else None,
+        },
+
+        "asset": {
+            "asset_id": ticket.asset_id,
+            "nama_asset": ticket.nama_asset,
+            "kode_bmd": ticket.kode_bmd_asset,
+            "nomor_seri": ticket.nomor_seri_asset,
+            "kategori": ticket.kategori_asset,
+            "subkategori_id": ticket.subkategori_id_asset,
+            "subkategori_nama": ticket.subkategori_nama_asset,
+            "jenis_asset": ticket.jenis_asset,
+            "lokasi_asset": ticket.lokasi_asset,
+            "opd_id_asset": ticket.opd_id_asset,
+        },
+
+        "files": [
+            {
+                "attachment_id": str(a.attachment_id),
+                "file_path": a.file_path,
+                "uploaded_at": a.uploaded_at
+            }
+            for a in attachments
+        ]
+    }
+
+
+
+
+@router.get("/teknisi/seksi")
+def get_technicians_for_seksi(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+
+    if current_user.get("role_name") != "admin dinas":
+        raise HTTPException(
+            status_code=403,
+            detail="Akses ditolak: hanya seksi yang dapat melihat daftar teknisi"
+        )
+
+    seksi_opd_id = current_user.get("dinas_id")
+    if not seksi_opd_id:
+        raise HTTPException(
+            status_code=400,
+            detail="User tidak memiliki OPD"
+        )
+
+    technicians = (
+        db.query(Users)
+        .filter(Users.role_id == 6) 
+        .filter(Users.opd_id == seksi_opd_id)
+        .all()
+    )
+
+    result = []
+
+    for tech in technicians:
+        level = tech.teknisi_level_obj  
+        tag = tech.teknisi_tag_obj  
+
+        quota = level.quota if level else 0
+        used = tech.teknisi_kuota_terpakai or 0
+        remaining_quota = quota - used
+
+        result.append({
+            "id": str(tech.id),
+            "full_name": tech.full_name,
+            "profile_url": tech.profile_url,
+            "email": tech.email,
+
+            "tag": tag.name if tag else None,
+            "tag_id": tag.id if tag else None,
+
+            "level": level.name if level else None,
+            "level_id": level.id if level else None,
+            "quota": quota,
+
+            "current_load": used,
+            "remaining_quota": remaining_quota
+        })
+
+    return {
+        "total": len(result),
+        "data": result
+    }
+
+
+@router.put("/tickets/{ticket_id}/assign-teknisi")
+def assign_teknisi(
+    ticket_id: str,
+    payload: AssignTeknisiSchema,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    if current_user.get("role_name") != "admin dinas":
+        raise HTTPException(status_code=403, detail="Akses ditolak")
+
+    ticket = db.query(Tickets).filter(Tickets.ticket_id == ticket_id).first()
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket tidak ditemukan")
+
+    if ticket.assigned_teknisi_id is not None:
+        raise HTTPException(
+            status_code=400,
+            detail="Tiket ini sudah pernah di-assign ke teknisi. Tidak boleh assign ulang."
+        )
+
+    if ticket.status != "verified by bidang":
+        raise HTTPException(status_code=400, detail="Ticket belum diverifikasi bidang")
+
+    teknisi = db.query(Users).filter(Users.id == payload.teknisi_id).first()
+    if not teknisi:
+        raise HTTPException(status_code=400, detail="Teknisi tidak ditemukan")
+
+    if teknisi.role_id != 6:
+        raise HTTPException(status_code=400, detail="User ini bukan teknisi")
+
+
+    if teknisi.opd_id != current_user.get("dinas_id"):
+        raise HTTPException(status_code=403, detail="Teknisi bukan dari OPD yang sama")
+
+    level = teknisi.teknisi_level_obj
+    if (teknisi.teknisi_kuota_terpakai or 0) >= level.quota:
+        raise HTTPException(status_code=400, detail="Kuota teknisi penuh")
+
+    now_time = datetime.now().time()
+    pengerjaan_awal = datetime.combine(payload.pengerjaan_awal, now_time)
+    pengerjaan_akhir = datetime.combine(payload.pengerjaan_akhir, now_time)
+
+    ticket.assigned_teknisi_id = payload.teknisi_id
+    ticket.pengerjaan_awal = pengerjaan_awal
+    ticket.pengerjaan_akhir = pengerjaan_akhir
+    ticket.status = "assigned to teknisi"
+    ticket.status_ticket_teknisi = "Draft"
+    ticket.status_ticket_pengguna = "proses penugasan teknisi"
+    ticket.status_ticket_seksi = "diproses"
+
+    teknisi.teknisi_kuota_terpakai += 1
+
+    db.commit()
+    db.refresh(ticket)
+
+    return {"message": "Teknisi berhasil diassign", "ticket_id": ticket_id}
+
+
+
+
+
+
+# #BIDANG
+# @router.get("/tickets/bidang/verified")
+# def get_verified_tickets_for_bidang(
+#     db: Session = Depends(get_db),
+#     current_user: dict = Depends(get_current_user)
+# ):
+
+#     if current_user.get("role_name") != "bidang":
+#         raise HTTPException(
+#             403,
+#             "Akses ditolak: hanya admin bidang yang dapat melihat tiket yang diverifikasi oleh seksi"
+#         )
+
+#     opd_id = current_user.get("dinas_id")
+#     if not opd_id:
+#         raise HTTPException(
+#             400,
+#             "Akun bidang tidak memiliki dinas_id, hubungi admin sistem."
+#         )
+
+#     tickets = (
+#         db.query(models.Tickets)
+#         .filter(
+#             models.Tickets.status == "verified by seksi",
+#             models.Tickets.priority.isnot(None),
+#             models.Tickets.opd_id_tickets == opd_id
+#         )
+#         .order_by(models.Tickets.created_at.desc())
+#         .all()
+#     )
+
+#     results = []
+
+#     for ticket in tickets:
+
+#         attachments = ticket.attachments if hasattr(ticket, "attachments") else []
+
+#         results.append({
+#             "ticket_id": str(ticket.ticket_id),
+#             "ticket_code": ticket.ticket_code,
+#             "title": ticket.title,
+#             "status": ticket.status,
+#             "created_at": ticket.created_at,
+#             "updated_at": ticket.updated_at,
+#             "priority": ticket.priority,
+#             "opd_id_tickets": ticket.opd_id_tickets,
+#             "ticket_source": ticket.ticket_source,
+
+#             "creator": {
+#                 "user_id": str(ticket.creates_id) if ticket.creates_id else None,
+#                 "full_name": ticket.creates_user.full_name if ticket.creates_user else None,
+#                 "profile": ticket.creates_user.profile_url if ticket.creates_user else None,
+#                 "email": ticket.creates_user.email if ticket.creates_user else None,
+#             },
+
+#             "asset": {
+#                 "asset_id": ticket.asset_id,
+#                 "nama_asset": ticket.nama_asset,
+#                 "kode_bmd": ticket.kode_bmd_asset,
+#                 "nomor_seri": ticket.nomor_seri_asset,
+#             },
+
+#             "files": [
+#                 {
+#                     "attachment_id": str(a.attachment_id),
+#                     "file_path": a.file_path,
+#                     "uploaded_at": a.uploaded_at
+#                 }
+#                 for a in attachments
+#             ]
+#         })
+
+#     return {
+#         "message": "Daftar tiket yang sudah diverifikasi oleh seksi",
+#         "total": len(results),
+#         "data": results
+#     }
+
+
+
+# @router.get("/tickets/bidang/{ticket_id}")
+# def get_ticket_detail_bidang(
+#     ticket_id: str,
+#     db: Session = Depends(get_db),
+#     current_user: dict = Depends(get_current_user)
+# ):
+
+#     if current_user.get("role_name") != "bidang":
+#         raise HTTPException(
+#             403,
+#             "Akses ditolak: hanya admin bidang"
+#         )
+
+#     opd_id = current_user.get("dinas_id")
+#     if not opd_id:
+#         raise HTTPException(
+#             400,
+#             "Akun bidang tidak memiliki OPD ID"
+#         )
+
+#     ticket = (
+#         db.query(models.Tickets)
+#         .filter(
+#             models.Tickets.ticket_id == ticket_id,
+#             models.Tickets.opd_id_tickets == opd_id,
+#             models.Tickets.status == "verified by seksi"
+#         )
+#         .first()
+#     )
+
+
+#     if not ticket:
+#         raise HTTPException(404, "Tiket tidak ditemukan, belum diverifikasi seksi atau bukan dari OPD Anda")
+
+#     attachments = (
+#         db.query(models.TicketAttachment)
+#         .filter(models.TicketAttachment.has_id == ticket_id)
+#         .all()
+#     )
+
+#     response = {
+#         "ticket_id": str(ticket.ticket_id),
+#         "ticket_code": ticket.ticket_code,
+#         "title": ticket.title,
+#         "description": ticket.description,
+#         "status": ticket.status,
+#         # "stage": ticket.ticket_stage,
+#         "created_at": ticket.created_at,
+#         "priority": ticket.priority,
+
+#         "opd_id_tickets": ticket.opd_id_tickets,
+#         "lokasi_kejadian": ticket.lokasi_kejadian,
+#         "expected_resolution": ticket.expected_resolution,
+#         "ticket_source": ticket.ticket_source,
+#         "status_ticket_pengguna": ticket.status_ticket_pengguna,
+#         "status_ticket_seksi": ticket.status_ticket_seksi,
+
+#         "creator": {
+#             "user_id": str(ticket.creates_id) if ticket.creates_id else None,
+#             "full_name": ticket.creates_user.full_name if ticket.creates_user else None,
+#             "profile": ticket.creates_user.profile_url if ticket.creates_user else None,
+#             "email": ticket.creates_user.email if ticket.creates_user else None,
+#         },
+
+#         "asset": {
+#             "asset_id": ticket.asset_id,
+#             "nama_asset": ticket.nama_asset,
+#             "kode_bmd": ticket.kode_bmd_asset,
+#             "nomor_seri": ticket.nomor_seri_asset,
+#             "kategori": ticket.kategori_asset,
+#             "subkategori_id": ticket.subkategori_id_asset,
+#             "subkategori_nama": ticket.subkategori_nama_asset,
+#             "jenis_asset": ticket.jenis_asset,
+#             "lokasi_asset": ticket.lokasi_asset,
+#             "opd_id_asset": ticket.opd_id_asset,
+#         },
+
+#         "files": [
+#             {
+#                 "attachment_id": str(a.attachment_id),
+#                 "file_path": a.file_path,
+#                 "uploaded_at": a.uploaded_at
+#             }
+#             for a in attachments
+#         ]
+#     }
+
+#     return {
+#         "message": "Detail tiket untuk bidang",
+#         "data": response
+#     }
+
+
+# @router.patch("/tickets/bidang/verify/{ticket_id}")
+# def verify_by_bidang(
+#     ticket_id: str,
+#     db: Session = Depends(get_db),
+#     current_user: dict = Depends(get_current_user)
+# ):
+
+#     if current_user.get("role_name") != "bidang":
+#         raise HTTPException(403, "Akses ditolak: hanya admin bidang")
+
+#     opd_id = current_user.get("dinas_id")
+
+#     ticket = (
+#         db.query(models.Tickets)
+#         .filter(
+#             models.Tickets.ticket_id == ticket_id,
+#             models.Tickets.opd_id_tickets == opd_id,
+#             models.Tickets.status == "verified by seksi"
+#         )
+#         .first()
+#     )
+
+#     if not ticket:
+#         raise HTTPException(404, "Tiket tidak valid untuk diverifikasi bidang")
+
+#     ticket.status = "verified by bidang"
+#     ticket.ticket_stage = "verified-bidang"
+#     ticket.status_ticket_seksi = "Draft"
+#     ticket.updated_at = datetime.utcnow()
+
+#     db.commit()
+
+#     return {"message": "Tiket berhasil diverifikasi oleh bidang"}
+
+
+
+# @router.patch("/tickets/bidang/reject/{ticket_id}")
+# def reject_by_bidang(
+#     ticket_id: str,
+#     payload: RejectReasonBidang,
+#     db: Session = Depends(get_db),
+#     current_user: dict = Depends(get_current_user)
+# ):
+
+#     if current_user.get("role_name") != "bidang":
+#         raise HTTPException(403, "Akses ditolak: hanya admin bidang")
+
+#     opd_id = current_user.get("dinas_id")
+
+#     ticket = (
+#         db.query(models.Tickets)
+#         .filter(
+#             models.Tickets.ticket_id == ticket_id,
+#             models.Tickets.opd_id_tickets == opd_id,
+#             models.Tickets.status == "verified by seksi"
+#         )
+#         .first()
+#     )
+
+#     if not ticket:
+#         raise HTTPException(404, "Tiket tidak valid untuk direject bidang")
+
+#     ticket.status = "rejected by bidang"
+#     ticket.ticket_stage = "revisi-seksi"
+#     ticket.status_ticket_seksi = "revisi"
+#     ticket.rejection_reason_bidang = payload.reason
+#     ticket.updated_at = datetime.utcnow()
+
+#     db.commit()
+#     db.refresh(ticket)
+
+#     return {"message": "Tiket berhasil ditolak oleh bidang", "reason": payload.reason}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# @router.get("/tickets/bidang/verified")
+# def get_verified_tickets_for_bidang(
+#     db: Session = Depends(get_db),
+#     current_user: dict = Depends(get_current_user)
+# ):
+
+#     # Hanya role 'admin bidang'
+#     if current_user.get("role_name") != "bidang":
+#         raise HTTPException(
+#             403,
+#             "Akses ditolak: hanya admin bidang yang dapat melihat tiket yang sudah diverifikasi seksi"
+#         )
+
+#     opd_id = current_user.get("dinas_id")
+#     if not opd_id:
+#         raise HTTPException(
+#             400,
+#             "Akun bidang tidak memiliki OPD ID, hubungi admin sistem."
+#         )
+
+#     # Ambil semua tiket yang sudah diverifikasi seksi untuk OPD yang sama
+#     tickets = (
+#         db.query(models.Tickets)
+#         .filter(
+#             models.Tickets.status == "verified by seksi",
+#             models.Tickets.priority.isnot(None),
+#             models.Tickets.opd_id_tickets == opd_id
+#         )
+#         .order_by(models.Tickets.created_at.desc())
+#         .all()
+#     )
+
+#     # Format response: ticket_id dan ticket_code di atas
+#     formatted_tickets = []
+#     for t in tickets:
+#         t_dict = t.__dict__.copy()
+#         t_dict.pop("_sa_instance_state", None)
+
+#         formatted = {
+#             "ticket_id": t.ticket_id,
+#             "ticket_code": t.ticket_code,
+#             **t_dict
+#         }
+
+#         formatted_tickets.append(formatted)
+
+#     return {
+#         "message": "Daftar tiket yang sudah diverifikasi oleh seksi",
+#         "total": len(formatted_tickets),
+#         "data": formatted_tickets
+#     }
 
 
 
@@ -860,7 +1570,10 @@ def set_priority_masyarakat(
 #     }
 
 
-@router.get("/pelaporan-online/draft")
+
+
+
+# @router.get("/pelaporan-online/draft")
 async def get_user_drafts(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
@@ -887,7 +1600,7 @@ async def get_user_drafts(
 
 
 
-@router.put("/pelaporan-online/submit/{ticket_id}")
+# @router.put("/pelaporan-online/submit/{ticket_id}")
 async def submit_draft_ticket(
     ticket_id: UUID,
     db: Session = Depends(get_db),
@@ -941,7 +1654,7 @@ async def submit_draft_ticket(
     return {"message": "Tiket berhasil dikirim dari draft", "ticket_id": str(ticket_id)}
 
 
-@router.get("/ticket-categories", response_model=list[TicketCategorySchema])
+# @router.get("/ticket-categories", response_model=list[TicketCategorySchema])
 async def get_ticket_categories(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
@@ -959,7 +1672,7 @@ async def get_ticket_categories(
 
 
 
-@router.post("/pengajuan-pelayanan")
+# @router.post("/pengajuan-pelayanan")
 async def create_ticket_pegawai_JANGAN_DIPAKE_DULU(
     request_type: str = Form(...),             
     description: str = Form(...),
@@ -1022,7 +1735,7 @@ async def create_ticket_pegawai_JANGAN_DIPAKE_DULU(
 
 
 #SEKSI
-@router.get("/tickets/seksi", response_model=list[TicketForSeksiSchema])
+# @router.get("/tickets/seksi", response_model=list[TicketForSeksiSchema])
 async def get_tickets_for_seksi(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
@@ -1046,7 +1759,7 @@ async def get_tickets_for_seksi(
 
     return tickets
 
-@router.get("/tickets/seksi/{ticket_id}", response_model=TicketForSeksiSchema)
+# @router.get("/tickets/seksi/{ticket_id}", response_model=TicketForSeksiSchema)
 async def get_ticket_detail_seksi_temp(
     ticket_id: str,
     db: Session = Depends(get_db),
@@ -1069,7 +1782,7 @@ async def get_ticket_detail_seksi_temp(
     return ticket
 
 
-@router.post("/tickets/seksi/verify/{ticket_id}")
+# @router.post("/tickets/seksi/verify/{ticket_id}")
 async def verify_ticket_seksi(
     ticket_id: str,
     priority: str = Form(...),
@@ -1113,12 +1826,12 @@ async def verify_ticket_seksi(
 
 
 # Tracking tiket
-@router.get(
-    "/track/{ticket_id}",
-    tags=["tickets"],
-    summary="Track Ticket Status",
-    response_model=schemas.TicketTrackResponse
-)
+# @router.get(
+#     "/track/{ticket_id}",
+#     tags=["tickets"],
+#     summary="Track Ticket Status",
+#     response_model=schemas.TicketTrackResponse
+# )
 async def track_ticket(
     ticket_id: UUID,
     db: Session = Depends(get_db),
