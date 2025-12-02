@@ -1,9 +1,10 @@
-from sqlalchemy import Column, String, Text, DateTime, ForeignKey, CheckConstraint, JSON, Integer
+from sqlalchemy import Column, String, Text, DateTime, ForeignKey, CheckConstraint, JSON, Integer, TIMESTAMP
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from auth.database import Base
 import uuid
 from datetime import datetime
+from sqlalchemy import func
 
 # # class Ticket(Base):
 # #     __tablename__ = "tickets"
@@ -105,15 +106,22 @@ class Tickets(Base):
     metadata_asset = Column(JSON, nullable=True)
     ticket_code = Column(String, unique=True, nullable=True)
     subkategori_nama_asset = Column(String, nullable=True)
-
+    status_ticket_pengguna = Column(String, nullable=True)
+    status_ticket_seksi = Column(String, nullable=True)
+    status_ticket_teknisi = Column(String, nullable=True)
+    rejection_reason_seksi = Column(String, nullable=True)
+    rejection_reason_bidang = Column(String, nullable=True)
 
     # Relations
     creates_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"))
-    assigned_to_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"))
-    verified_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"))
-    escalated_to_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"))
+    assigned_teknisi_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"))
+    verified_seksi_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"))
+    verified_bidang_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"))
     opd_id_tickets = Column(Integer, ForeignKey("dinas.id"), nullable=True)
     role_id_source = Column(Integer, ForeignKey("roles.role_id"), nullable=True)
+    
+    pengerjaan_awal = Column(DateTime(timezone=True), nullable=True)
+    pengerjaan_akhir = Column(DateTime(timezone=True), nullable=True)
 
     # opd_id = Column(UUID(as_uuid=True), ForeignKey("opd.opd_id"))
     # category_id = Column(UUID(as_uuid=True), ForeignKey("ticket_categories.category_id"))
@@ -183,6 +191,32 @@ class TicketCategories(Base):
     description = Column(Text)
 
     # tickets = relationship("Tickets", back_populates="category")
+
+
+class TeknisiTags(Base):
+    __tablename__ = "teknisi_tags"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(100), nullable=False)
+    created_at = Column(TIMESTAMP, server_default=func.now())
+    updated_at = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now())
+
+    # relationship
+    users = relationship("Users", back_populates="teknisi_tag_obj")
+
+
+class TeknisiLevels(Base):
+    __tablename__ = "teknisi_levels"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(50), nullable=False)
+    quota = Column(Integer, nullable=False)
+    created_at = Column(TIMESTAMP, server_default=func.now())
+    updated_at = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now())
+
+    # relationship
+    users = relationship("Users", back_populates="teknisi_level_obj")
+
 
 
 # class TicketUpdates(Base):

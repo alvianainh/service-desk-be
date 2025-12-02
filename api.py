@@ -3,6 +3,8 @@ from fastapi.middleware.cors import CORSMiddleware
 import logging
 from pipeline import router as pipeline_router
 from tickets import routes as ticket_routes
+from tickets import routes_bidang as ticket_routes_bidang
+from tickets import routes_seksi as ticket_routes_seksi
 from opd import routes as opd_routes
 from roles import routes as roles_routes
 from articles import routes as articles_routes
@@ -50,6 +52,9 @@ app.include_router(roles_routes.router, tags=["roles"])
 app.include_router(opd_routes.router)
 app.include_router(roles_routes.router, tags=["roles"])
 app.include_router(ticket_routes.router, prefix="/api", tags=["tickets"])
+app.include_router(ticket_routes_bidang.router, prefix="/api", tags=["bidang"])
+# app.include_router(ticket_routes_seksi.router, prefix="/api")
+
 app.include_router(articles_routes.router, tags=["articles"])
 app.include_router(chat_routes.router)
 
