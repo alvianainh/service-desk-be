@@ -359,11 +359,8 @@ async def refresh_token(refresh_token: str, db: Session = Depends(get_db)):
 
 @router.get("/me")
 async def get_sso_me(current_user: dict = Depends(get_current_user)):
-    """
-    Proxy /me Arise, tapi tokennya pakai token hasil validasi 
-    dari get_current_user
-    """
-    token = current_user["token"]  # <-- token arise yang valid
+
+    token = current_user["token"]  
 
     async with aiohttp.ClientSession() as session:
         async with session.get(
