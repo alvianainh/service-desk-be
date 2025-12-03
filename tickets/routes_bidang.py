@@ -131,7 +131,7 @@ def map_role_to_ticket_source(role_name: str):
 @router.get("/tickets/bidang/verified")
 def get_verified_tickets_for_bidang(
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user_masyarakat)
 ):
 
     if current_user.get("role_name") != "bidang":
@@ -211,7 +211,7 @@ def get_verified_tickets_for_bidang(
 def get_ticket_detail_bidang(
     ticket_id: str,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user_masyarakat)
 ):
 
     if current_user.get("role_name") != "bidang":
@@ -304,7 +304,7 @@ def get_ticket_detail_bidang(
 def verify_by_bidang(
     ticket_id: str,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user_masyarakat)
 ):
 
     if current_user.get("role_name") != "bidang":
@@ -341,7 +341,7 @@ def reject_by_bidang(
     ticket_id: str,
     payload: RejectReasonBidang,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user_masyarakat)
 ):
 
     if current_user.get("role_name") != "bidang":

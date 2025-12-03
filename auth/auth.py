@@ -296,64 +296,147 @@ async def get_current_user(
         "token": token
     }
 
-
-
 def sync_user_from_aset(db: Session, aset_user: dict):
+    email = aset_user["email"]
+    new_user_id_asset = str(aset_user["id"])
     role_id_aset = aset_user.get("role_id")
-    dinas_id_aset = aset_user.get("dinas_id")
+    dinas_id_aset = aset_user.get("unit_kerja_id")
 
     role = db.query(Roles).filter(Roles.role_id == role_id_aset).first()
     if not role:
         raise HTTPException(
             status_code=400,
-            detail=f"Role dengan ID {role_id_aset} dari ASET belum terdaftar di tabel roles"
+            detail=f"Role ID {role_id_aset} dari API ASET belum ada di tabel roles"
         )
 
     dinas = None
-    if dinas_id_aset is not None:
+    if dinas_id_aset:
         dinas = db.query(Dinas).filter(Dinas.id == dinas_id_aset).first()
         if not dinas:
             raise HTTPException(
                 status_code=400,
-                detail=f"Dinas dengan ID {dinas_id_aset} dari ASET belum terdaftar di tabel Dinas"
+                detail=f"Dinas ID {dinas_id_aset} dari API ASET belum ada di tabel dinas"
             )
 
-    user = db.query(Users).filter(
-        Users.user_id_asset == str(aset_user["id"])
-    ).first()
+    user_by_email = db.query(Users).filter(Users.email == email).first()
+    user_by_aset_id = db.query(Users).filter(Users.user_id_asset == new_user_id_asset).first()
 
-    if not user:
+    if user_by_email and user_by_aset_id and user_by_email.id != user_by_aset_id.id:
+        user = user_by_email
+        db.delete(user_by_aset_id)
+        db.commit()
+
+    elif user_by_email:
+        user = user_by_email
+
+    elif user_by_aset_id:
+        user = user_by_aset_id
+
+    else:
         user = Users(
-            email=aset_user["email"],
-            password=None,
+            email=email,
             full_name=aset_user.get("name"),
             username_asset=aset_user.get("username"),
             address=aset_user.get("alamat"),
 
-            opd_id_asset=dinas_id_aset,
+            user_id_asset=new_user_id_asset,
             role_id_asset=role_id_aset,
-            user_id_asset=str(aset_user["id"]),
+            opd_id_asset=dinas_id_aset,
 
             role_id=role.role_id,
             opd_id=dinas.id if dinas else None,
         )
         db.add(user)
-    else:
-        user.email = aset_user["email"]
-        user.full_name = aset_user.get("name")
-        user.username_asset = aset_user.get("username")
-        user.address = aset_user.get("alamat")
+        db.commit()
+        db.refresh(user)
+        return user
 
-        user.opd_id_asset = dinas_id_aset
-        user.role_id_asset = role_id_aset
+    existing_email = (
+        db.query(Users)
+        .filter(Users.email == email, Users.id != user.id)
+        .first()
+    )
+    if existing_email:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Email {email} sudah digunakan oleh akun lain"
+        )
 
-        user.role_id = role.role_id
-        user.opd_id = dinas.id if dinas else None
+    user.email = email
+    user.user_id_asset = new_user_id_asset
+    user.full_name = aset_user.get("name")
+    user.username_asset = aset_user.get("username")
+    user.address = aset_user.get("alamat")
+    user.role_id_asset = role_id_aset
+    user.opd_id_asset = dinas_id_aset
+
+    user.role_id = role.role_id
+    user.opd_id = dinas.id if dinas else None
 
     db.commit()
     db.refresh(user)
-
     return user
+
+
+
+
+
+# def sync_user_from_aset(db: Session, aset_user: dict):
+#     role_id_aset = aset_user.get("role_id")
+#     dinas_id_aset = aset_user.get("dinas_id")
+
+#     role = db.query(Roles).filter(Roles.role_id == role_id_aset).first()
+#     if not role:
+#         raise HTTPException(
+#             status_code=400,
+#             detail=f"Role dengan ID {role_id_aset} dari ASET belum terdaftar di tabel roles"
+#         )
+
+#     dinas = None
+#     if dinas_id_aset is not None:
+#         dinas = db.query(Dinas).filter(Dinas.id == dinas_id_aset).first()
+#         if not dinas:
+#             raise HTTPException(
+#                 status_code=400,
+#                 detail=f"Dinas dengan ID {dinas_id_aset} dari ASET belum terdaftar di tabel Dinas"
+#             )
+
+#     user = db.query(Users).filter(
+#         Users.user_id_asset == str(aset_user["id"])
+#     ).first()
+
+#     if not user:
+#         user = Users(
+#             email=aset_user["email"],
+#             password=None,
+#             full_name=aset_user.get("name"),
+#             username_asset=aset_user.get("username"),
+#             address=aset_user.get("alamat"),
+
+#             opd_id_asset=dinas_id_aset,
+#             role_id_asset=role_id_aset,
+#             user_id_asset=str(aset_user["id"]),
+
+#             role_id=role.role_id,
+#             opd_id=dinas.id if dinas else None,
+#         )
+#         db.add(user)
+#     else:
+#         user.email = aset_user["email"]
+#         user.full_name = aset_user.get("name")
+#         user.username_asset = aset_user.get("username")
+#         user.address = aset_user.get("alamat")
+
+#         user.opd_id_asset = dinas_id_aset
+#         user.role_id_asset = role_id_aset
+
+#         user.role_id = role.role_id
+#         user.opd_id = dinas.id if dinas else None
+
+#     db.commit()
+#     db.refresh(user)
+
+#     return user
 
 
 
