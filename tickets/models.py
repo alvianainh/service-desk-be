@@ -1,5 +1,6 @@
-from sqlalchemy import Column, String, Text, DateTime, ForeignKey, CheckConstraint, JSON, Integer, TIMESTAMP
+from sqlalchemy import Column, String, Text, DateTime, ForeignKey, CheckConstraint, JSON, Integer, TIMESTAMP, UUID
 from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import relationship
 from auth.database import Base
 import uuid
@@ -135,7 +136,11 @@ class Tickets(Base):
 
     attachments = relationship("TicketAttachment", back_populates="ticket", cascade="all, delete-orphan")
     creates_user = relationship("Users", foreign_keys=[creates_id])
-
+    history = relationship(
+            "TicketHistory",
+            back_populates="ticket",
+            cascade="all, delete-orphan"
+        )
 
 
     __table_args__ = (
@@ -151,6 +156,58 @@ class Tickets(Base):
             "ticket_stage IN ('user_draft','user_submit','seksi_draft','seksi_submit','bidang_draft','bidang_submit')"
         )
     )
+
+class TicketRatings(Base):
+    __tablename__ = "ticket_ratings"
+
+    rating_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    ticket_id = Column(UUID(as_uuid=True), ForeignKey("tickets.ticket_id"))
+    user_id = Column(UUID(as_uuid=True))
+    rating = Column(Integer, nullable=False)
+    comment = Column(Text)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    ticket = relationship("Tickets", backref="rating")
+
+class TicketHistory(Base):
+    __tablename__ = "ticket_history"
+
+    history_id = Column(
+        PG_UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4
+    )
+
+    ticket_id = Column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("tickets.ticket_id", ondelete="CASCADE"),
+        nullable=False
+    )
+
+    old_status = Column(String(50), nullable=True)
+    new_status = Column(String(50), nullable=False)
+
+    updated_by_user_id = Column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True
+    )
+
+    updated_at = Column(
+        DateTime(timezone=False),
+        server_default=func.now(),
+        nullable=False
+    )
+
+    pengerjaan_awal = Column(DateTime, nullable=True)
+    pengerjaan_akhir = Column(DateTime, nullable=True)
+    pengerjaan_awal_teknisi = Column(DateTime, nullable=True)
+    pengerjaan_akhir_teknisi = Column(DateTime, nullable=True)
+
+    extra_data = Column(JSON, nullable=True, default=dict)
+
+    ticket = relationship("Tickets", back_populates="history")
+    user = relationship("Users")
 
 class TicketAttachment(Base):
     __tablename__ = "ticket_attachment"
