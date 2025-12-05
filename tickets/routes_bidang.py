@@ -6,7 +6,7 @@ from . import models, schemas
 from auth.database import get_db
 from auth.auth import get_current_user, get_user_by_email, get_current_user_masyarakat
 from tickets import models, schemas
-from tickets.models import Tickets, TicketAttachment, TicketCategories, TicketUpdates
+from tickets.models import Tickets, TicketAttachment, TicketCategories, TicketUpdates, TicketHistory
 from tickets.schemas import TicketCreateSchema, TicketResponseSchema, TicketCategorySchema, TicketForSeksiSchema, TicketTrackResponse, UpdatePriority, ManualPriority, RejectReasonSeksi, RejectReasonBidang
 import uuid
 from auth.models import Opd, Dinas, Roles
@@ -126,6 +126,32 @@ def map_role_to_ticket_source(role_name: str):
         return "pegawai"
 
     return "masyarakat"
+
+def add_ticket_history(
+    db,
+    ticket,
+    new_status: str,
+    old_status: str, 
+    updated_by: UUID,
+    extra: dict = None
+):
+    history = models.TicketHistory(
+        ticket_id=ticket.ticket_id,
+        old_status=old_status,
+        new_status=new_status,
+        updated_by_user_id=updated_by,
+        pengerjaan_awal=ticket.pengerjaan_awal,
+        pengerjaan_akhir=ticket.pengerjaan_akhir,
+        pengerjaan_awal_teknisi=ticket.pengerjaan_awal_teknisi,
+        pengerjaan_akhir_teknisi=ticket.pengerjaan_akhir_teknisi,
+        extra_data=extra or {}
+    )
+
+    db.add(history)
+    db.commit()
+    db.refresh(history)
+
+    return history
 
 
 @router.get("/tickets/bidang/verified")
@@ -323,8 +349,11 @@ def verify_by_bidang(
         .first()
     )
 
+
     if not ticket:
         raise HTTPException(404, "Tiket tidak valid untuk diverifikasi bidang")
+
+    old_status = ticket.status
 
     ticket.status = "verified by bidang"
     ticket.ticket_stage = "verified-bidang"
@@ -333,6 +362,15 @@ def verify_by_bidang(
     ticket.updated_at = datetime.utcnow()
 
     db.commit()
+
+    add_ticket_history(
+        db=db,
+        ticket=ticket,
+        old_status=old_status,
+        new_status=ticket.status, 
+        updated_by=UUID(current_user["id"]),
+        extra={"notes": "Tiket dibuat melalui pelaporan online"}
+    )
 
     return {"message": "Tiket berhasil diverifikasi oleh bidang"}
 
@@ -364,6 +402,9 @@ def reject_by_bidang(
     if not ticket:
         raise HTTPException(404, "Tiket tidak valid untuk direject bidang")
 
+
+    old_status = ticket.status
+
     ticket.status = "rejected by bidang"
     ticket.ticket_stage = "revisi-seksi"
     ticket.status_ticket_seksi = "revisi"
@@ -372,6 +413,15 @@ def reject_by_bidang(
 
     db.commit()
     db.refresh(ticket)
+
+    add_ticket_history(
+        db=db,
+        ticket=ticket,
+        old_status=old_status,
+        new_status=ticket.status, 
+        updated_by=UUID(current_user["id"]),
+        extra={"notes": "Tiket dibuat melalui pelaporan online"}
+    )
 
     return {"message": "Tiket berhasil ditolak oleh bidang", "reason": payload.reason}
 
