@@ -213,12 +213,13 @@ def add_ticket_history(
     db,
     ticket,
     new_status: str,
+    old_status: str, 
     updated_by: UUID,
     extra: dict = None
 ):
     history = models.TicketHistory(
         ticket_id=ticket.ticket_id,
-        old_status=ticket.status,
+        old_status=old_status,
         new_status=new_status,
         updated_by_user_id=updated_by,
         pengerjaan_awal=ticket.pengerjaan_awal,
@@ -246,7 +247,7 @@ async def create_public_report(
     expected_resolution: Optional[str] = Form(None),
     files: Optional[List[UploadFile]] = File(None),
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user_masyarakat)
+    current_user: dict = Depends(get_current_user)
 ):
 
     token = current_user.get("token")
@@ -257,46 +258,26 @@ async def create_public_report(
     role = db.query(Roles).filter(Roles.role_id == role_id_asset).first()
     role_name = role.role_name if role else "pegawai"
 
-    # async with aiohttp.ClientSession() as session:
-    #     async with session.get(
-    #         f"https://arise-app.my.id/api/dinas/{id_aset_opd}",
-    #         headers={"Authorization": f"Bearer {token}"}
-    #     ) as res:
-    #         if res.status != 200:
-    #             raise HTTPException(400, "OPD tidak ditemukan di ASET")
-    #         opd_aset = await res.json()
-
     aset = await fetch_asset_from_api(token, asset_id)
 
-    opd_id_value = aset.get("dinas_id") or aset.get("dinas", {}).get("id")
-    if not opd_id_value:
-        raise HTTPException(400, "Asset tidak memiliki OPD")
-
+    #ini dipake validasi ---comment temp
+    opd_id_value = aset.get("unit_kerja", {}).get("dinas_id")
     # if not opd_id_value:
     #     raise HTTPException(400, "Asset tidak memiliki OPD")
-
-    # opd_id_value = opd_aset.get("data", {}).get("id")
-    # if not opd_id_value:
-    #     raise HTTPException(400, "Format response OPD dari API ASET tidak valid")
-
-    # aset = await fetch_asset_from_api(token, asset_id)
-    # asset_opd_id = aset.get("dinas_id") or aset.get("dinas", {}).get("id")
-
-    # if str(asset_opd_id) != str(id_aset_opd):
-    #     raise HTTPException(400, "Asset tidak berada di OPD yang dipilih")
 
     asset_kode_bmd = aset.get("kode_bmd")
     asset_nomor_seri = aset.get("nomor_seri")
     asset_nama = aset.get("nama_asset") or aset.get("nama") or aset.get("asset_name")
     asset_kategori = aset.get("kategori")
     asset_subkategori_id = aset.get("asset_barang", {}).get("sub_kategori", {}).get("id")
-    asset_jenis = aset.get("jenis_asset")
+    asset_jenis = aset.get("jenis")
     asset_lokasi = aset.get("lokasi")
 
     # asset_subkategori_id = aset.get("asset_barang", {}).get("sub_kategori", {}).get("id")
     subkategori_nama = await fetch_subkategori_name(asset_subkategori_id)
 
     ticket_uuid = uuid4()
+    old_status = None
 
     request_type = "pelaporan_online"
 
@@ -352,6 +333,7 @@ async def create_public_report(
     add_ticket_history(
         db=db,
         ticket=new_ticket,
+        old_status=old_status,
         new_status=new_ticket.status, 
         updated_by=UUID(current_user["id"]),
         extra={"notes": "Tiket dibuat melalui pelaporan online"}
@@ -420,6 +402,7 @@ async def create_public_report_masyarakat(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Dinas tidak ditemukan di sistem")
 
     ticket_uuid = uuid4()
+    old_status = None
 
     request_type = "pelaporan_online"
 
@@ -459,12 +442,23 @@ async def create_public_report_masyarakat(
     )
     db.add(new_ticket)
 
+
+    add_ticket_history(
+        db=db,
+        ticket=new_ticket,
+        old_status=old_status,
+        new_status=new_ticket.status, 
+        updated_by=UUID(current_user["id"]),
+        extra={"notes": "Tiket dibuat melalui pelaporan online"}
+    )
+
     new_update = TicketUpdates(
         status_change=new_ticket.status,
         notes="Tiket dibuat melalui pelaporan online masyarakat",
         makes_by_id=current_user.get("id"),
         ticket_id=new_ticket.ticket_id
     )
+
     db.add(new_update)
 
     db.commit()
@@ -697,6 +691,7 @@ def update_ticket_priority(
     if not ticket:
         raise HTTPException(404, "Tiket tidak ditemukan")
 
+    old_status = ticket.status
 
     if ticket.ticket_source != "Pegawai":
         raise HTTPException(
@@ -754,9 +749,22 @@ def update_ticket_priority(
     ticket.status_ticket_pengguna="proses verifikasi"
     ticket.verified_seksi_id=current_user.get("id")
 
-
     db.commit()
     db.refresh(ticket)
+
+
+    add_ticket_history(
+        db=db,
+        ticket=ticket,
+        old_status=old_status,
+        new_status=ticket.status, 
+        updated_by=UUID(current_user["id"]),
+        extra={"notes": "Tiket dibuat melalui pelaporan online"}
+    )
+
+
+    # db.commit()
+    # db.refresh(ticket)
 
     return {
         "message": "Prioritas tiket berhasil ditetapkan",
@@ -783,6 +791,8 @@ def set_priority_masyarakat(
     ticket = db.query(models.Tickets).filter_by(ticket_id=ticket_id).first()
     if not ticket:
         raise HTTPException(404, "Tiket tidak ditemukan")
+
+    old_status = ticket.status
 
     if ticket.ticket_source != "Masyarakat":
         raise HTTPException(
@@ -829,8 +839,18 @@ def set_priority_masyarakat(
     ticket.status_ticket_pengguna="proses verifikasi"
     ticket.verified_seksi_id=current_user.get("id")
 
+
     db.commit()
     db.refresh(ticket)
+
+    add_ticket_history(
+        db=db,
+        ticket=ticket,
+        old_status=old_status,
+        new_status=ticket.status, 
+        updated_by=UUID(current_user["id"]),
+        extra={"notes": "Tiket dibuat melalui pelaporan online"}
+    )
 
     return {
         "message": "Prioritas tiket masyarakat berhasil ditetapkan",
@@ -856,6 +876,8 @@ def reject_ticket(
     if not ticket:
         raise HTTPException(404, "Tiket tidak ditemukan")
 
+    old_status = ticket.status
+
     if ticket.priority is not None or ticket.status == "rejected":
         raise HTTPException(
             400,
@@ -870,6 +892,15 @@ def reject_ticket(
 
     db.commit()
     db.refresh(ticket)
+
+    add_ticket_history(
+        db=db,
+        ticket=ticket,
+        old_status=old_status,
+        new_status=ticket.status, 
+        updated_by=UUID(current_user["id"]),
+        extra={"notes": "Tiket dibuat melalui pelaporan online"}
+    )
 
     return {
         "message": "Tiket berhasil ditolak",
@@ -1122,6 +1153,8 @@ def assign_teknisi(
     if not ticket:
         raise HTTPException(status_code=404, detail="Ticket tidak ditemukan")
 
+    old_status = ticket.status
+
     if ticket.assigned_teknisi_id is not None:
         raise HTTPException(
             status_code=400,
@@ -1160,8 +1193,18 @@ def assign_teknisi(
 
     teknisi.teknisi_kuota_terpakai += 1
 
+
     db.commit()
     db.refresh(ticket)
+
+    add_ticket_history(
+        db=db,
+        ticket=ticket,
+        old_status=old_status,
+        new_status=ticket.status, 
+        updated_by=UUID(current_user["id"]),
+        extra={"notes": "Tiket dibuat melalui pelaporan online"}
+    )
 
     return {"message": "Teknisi berhasil diassign", "ticket_id": ticket_id}
 
@@ -1582,6 +1625,8 @@ def teknisi_start_processing(
     if not ticket:
         raise HTTPException(status_code=404, detail="Ticket tidak ditemukan.")
 
+    old_status = ticket.status
+
     if ticket.opd_id_tickets != teknisi_opd_id:
         raise HTTPException(
             status_code=403,
@@ -1610,6 +1655,15 @@ def teknisi_start_processing(
 
     db.commit()
     db.refresh(ticket)
+
+    add_ticket_history(
+        db=db,
+        ticket=ticket,
+        old_status=old_status,
+        new_status=ticket.status, 
+        updated_by=UUID(current_user["id"]),
+        extra={"notes": "Tiket dibuat melalui pelaporan online"}
+    )
 
     return {
         "message": "Tiket berhasil diperbarui menjadi diproses oleh teknisi.",
@@ -1650,6 +1704,8 @@ def teknisi_complete_ticket(
     if not ticket:
         raise HTTPException(status_code=404, detail="Ticket tidak ditemukan.")
 
+    old_status = ticket.status
+
     if ticket.opd_id_tickets != teknisi_opd_id:
         raise HTTPException(
             status_code=403,
@@ -1677,6 +1733,15 @@ def teknisi_complete_ticket(
 
     db.commit()
     db.refresh(ticket)
+
+    add_ticket_history(
+        db=db,
+        ticket=ticket,
+        old_status=old_status,
+        new_status=ticket.status, 
+        updated_by=UUID(current_user["id"]),
+        extra={"notes": "Tiket dibuat melalui pelaporan online"}
+    )
 
     return {
         "message": "Tiket berhasil diselesaikan oleh teknisi.",

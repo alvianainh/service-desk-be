@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from datetime import datetime, time
 from . import models, schemas
 from auth.database import get_db
-from auth.auth import get_current_user, get_user_by_email, get_current_user_masyarakat
+from auth.auth import get_current_user, get_user_by_email, get_current_user_masyarakat, get_current_user_universal
 from tickets import models, schemas
 from tickets.models import Tickets, TicketAttachment, TicketCategories, TicketUpdates, TeknisiTags, TeknisiLevels, TicketRatings
 from tickets.schemas import TicketCreateSchema, TicketResponseSchema, TicketCategorySchema, TicketForSeksiSchema, TicketTrackResponse, UpdatePriority, ManualPriority, RejectReasonSeksi, RejectReasonBidang, AssignTeknisiSchema
@@ -469,10 +469,10 @@ def get_finished_tickets_for_user(
     }
 
 @router.get("/track-ticket/{ticket_code}")
-def track_ticket(
+async def track_ticket(
     ticket_code: str,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user_masyarakat)   # atau get_current_user kalau pegawai
+    current_user: dict = Depends(get_current_user_universal)
 ):
     user_id = current_user.get("id")
 
