@@ -25,14 +25,14 @@ async def sync_roles_from_asset(db: Session):
                 db_role = db.query(Roles).filter(Roles.role_id == r["id"]).first()
 
                 if db_role:
-                    db_role.role_name = r["name"]
+                    db_role.role_name = r["nama"]
                     db_role.created_at = r["created_at"]
                     db_role.updated_at = r["updated_at"]
                     db_role.is_local = False
                 else:
                     new_role = Roles(
                         role_id=r["id"],
-                        role_name=r["name"],
+                        role_name=r["nama"],
                         created_at=r["created_at"],
                         updated_at=r["updated_at"],
                         is_local=False

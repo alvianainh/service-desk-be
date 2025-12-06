@@ -6,7 +6,7 @@ from . import models, schemas
 from auth.database import get_db
 from auth.auth import get_current_user, get_user_by_email, get_current_user_masyarakat, get_current_user_universal
 from tickets import models, schemas
-from tickets.models import Tickets, TicketAttachment, TicketCategories, TicketUpdates, TeknisiTags, TeknisiLevels, TicketRatings, WarRoom, WarRoomOPD, WarRoomSeksi
+from tickets.models import Tickets, TicketAttachment, TicketCategories, TicketUpdates, TeknisiTags, TeknisiLevels, TicketRatings, WarRoom, WarRoomOPD, WarRoomSeksi, Notifications
 from tickets.schemas import TicketCreateSchema, TicketResponseSchema, TicketCategorySchema, TicketForSeksiSchema, TicketTrackResponse, UpdatePriority, ManualPriority, RejectReasonSeksi, RejectReasonBidang, AssignTeknisiSchema
 import uuid
 from auth.models import Opd, Dinas, Roles, Users
@@ -17,6 +17,8 @@ import mimetypes
 from uuid import UUID, uuid4
 from typing import Optional, List
 import aiohttp, os, mimetypes, json
+import asyncio
+from websocket.notifier import push_notification
 
 
 
@@ -263,6 +265,35 @@ def add_ticket_history(
     return history
 
 
+async def update_ticket_status(db, ticket, new_status, updated_by):
+    old = ticket.status_ticket_pengguna
+    ticket.status_ticket_pengguna = new_status
+    db.commit()
+
+    notif = Notifications(
+        user_id=ticket.creates_id,
+        ticket_id=ticket.ticket_id,
+        status=new_status,
+        message=f"Status tiket {ticket.ticket_code} berubah dari {old} ke {new_status}"
+    )
+    db.add(notif)
+    db.commit()
+    db.refresh(notif)
+
+    payload = {
+        "id": str(notif.id),
+        "ticket_id": str(ticket.ticket_id),
+        "ticket_code": ticket.ticket_code,
+        "old_status": old,
+        "new_status": new_status,
+        "message": notif.message,
+        "user_id": str(ticket.creates_id)
+    }
+
+    asyncio.create_task(push_notification(payload))
+
+
+
 @router.get("/asset-barang")
 async def proxy_get_asset_barang(
     current_user: dict = Depends(get_current_user)
@@ -322,7 +353,6 @@ async def create_public_report(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
-
     token = current_user.get("token")
     if not token:
         raise HTTPException(status_code=401, detail="Token SSO tidak tersedia")
@@ -421,6 +451,13 @@ async def create_public_report(
     db.add(new_update)
     db.commit()
 
+    await update_ticket_status(
+        db=db,
+        ticket=new_ticket,
+        new_status="Menunggu Diproses",
+        updated_by=current_user["id"]
+    )
+
     uploaded_files = []
     if files:
         for file in files:
@@ -445,6 +482,13 @@ async def create_public_report(
         "message": "Laporan berhasil dibuat",
         "ticket_id": str(ticket_uuid),
         "ticket_code": new_ticket.ticket_code, 
+        "title": new_ticket.title,
+        "jenis_layanan": new_ticket.request_type,
+        "opd_tujuan": new_ticket.opd_id_tickets,
+        "created_at": new_ticket.created_at,
+        "lokasi_kejadian": new_ticket.lokasi_kejadian,
+
+
         "status": "Open",
         "asset": aset,
         # "opd_aset": opd_aset,
@@ -536,6 +580,14 @@ async def create_public_report_masyarakat(
 
     db.commit()
     db.refresh(new_ticket)
+
+
+    await update_ticket_status(
+        db=db,
+        ticket=new_ticket,
+        new_status="Menunggu Diproses",
+        updated_by=current_user["id"]
+    )
 
     uploaded_files = []
     if files:
@@ -746,7 +798,7 @@ def get_ticket_detail_seksi(
 
 
 @router.put("/tickets/{ticket_id}/priority")
-def update_ticket_priority(
+async def update_ticket_priority(
     ticket_id: str,
     payload: schemas.UpdatePriority,
     db: Session = Depends(get_db),
@@ -845,6 +897,12 @@ def update_ticket_priority(
         extra={"notes": "Tiket dibuat melalui pelaporan online"}
     )
 
+    await update_ticket_status(
+        db=db,
+        ticket=ticket,
+        new_status="Proses Verifikasi",
+        updated_by=current_user["id"]
+    )
 
     # db.commit()
     # db.refresh(ticket)
@@ -858,7 +916,7 @@ def update_ticket_priority(
 
 
 @router.put("/tickets/{ticket_id}/priority/masyarakat")
-def set_priority_masyarakat(
+async def set_priority_masyarakat(
     ticket_id: str,
     payload: schemas.ManualPriority,
     db: Session = Depends(get_db),
@@ -935,6 +993,13 @@ def set_priority_masyarakat(
         extra={"notes": "Tiket dibuat melalui pelaporan online"}
     )
 
+    await update_ticket_status(
+        db=db,
+        ticket=ticket,
+        new_status="Proses Verifikasi",
+        updated_by=current_user["id"]
+    )
+
     return {
         "message": "Prioritas tiket masyarakat berhasil ditetapkan",
         "ticket_id": ticket_id,
@@ -943,7 +1008,7 @@ def set_priority_masyarakat(
 
 
 @router.put("/tickets/{ticket_id}/reject")
-def reject_ticket(
+async def reject_ticket(
     ticket_id: str,
     payload: schemas.RejectReasonSeksi,
     db: Session = Depends(get_db),
@@ -983,6 +1048,13 @@ def reject_ticket(
         new_status=ticket.status, 
         updated_by=UUID(current_user["id"]),
         extra={"notes": "Tiket dibuat melalui pelaporan online"}
+    )
+
+    await update_ticket_status(
+        db=db,
+        ticket=ticket,
+        new_status="Tiket Ditolak",
+        updated_by=current_user["id"]
     )
 
     return {
@@ -1223,7 +1295,7 @@ def get_technicians_for_seksi(
 
 
 @router.put("/tickets/{ticket_id}/assign-teknisi")
-def assign_teknisi(
+async def assign_teknisi(
     ticket_id: str,
     payload: AssignTeknisiSchema,
     db: Session = Depends(get_db),
@@ -1287,6 +1359,13 @@ def assign_teknisi(
         new_status=ticket.status, 
         updated_by=UUID(current_user["id"]),
         extra={"notes": "Tiket dibuat melalui pelaporan online"}
+    )
+
+    await update_ticket_status(
+        db=db,
+        ticket=ticket,
+        new_status="Proses Penugasan Teknisi",
+        updated_by=current_user["id"]
     )
 
     return {"message": "Teknisi berhasil diassign", "ticket_id": ticket_id}

@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status, File, UploadFile, Form
 from sqlalchemy.orm import Session
-from auth.auth import get_current_user
+from auth.auth import get_current_user, get_current_user_universal
 from auth.database import get_db
 from auth.models import Articles, Users, ArticleTags, Tags
 import uuid
@@ -64,7 +64,7 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 async def create_tag(
     data: TagCreate,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user) 
+    current_user: dict = Depends(get_current_user_universal) 
 ):
     if current_user.get("role_name") != "admin dinas":
         raise HTTPException(status_code=403, detail="Unauthorized: Only admin_opd can create tags")
@@ -85,7 +85,7 @@ async def create_tag(
 @router.get("/tags", response_model=List[TagResponse])
 async def get_all_tags(
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user_universal)
 ):
     tags = db.query(Tags).order_by(Tags.tag_name.asc()).all()
     return tags
@@ -99,7 +99,7 @@ async def create_article(
     cover_url: Optional[str] = Form(None),
     cover_file: UploadFile = File(None),
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user_universal)
 ):
     roles = current_user.get("role_name", [])
     if "admin dinas" not in roles:
@@ -172,7 +172,7 @@ async def update_article(
     article_id: str,
     data: ArticleUpdate,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user_universal)
 ):
     roles = current_user.get("role_name", [])
 
@@ -250,7 +250,7 @@ async def verify_article(
     article_id: str,
     decision: str,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user_universal)
 ):
     roles = current_user.get("role_name", [])
 
@@ -317,7 +317,7 @@ async def get_public_articles(db: Session = Depends(get_db)):
 @router.get("/my-articles")
 async def get_my_articles(
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user_universal)
 ):
     articles = (
         db.query(Articles)
@@ -350,7 +350,7 @@ async def get_my_articles(
 @router.get("/all", response_model=dict)
 async def get_all_articles(
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user_universal)
 ):
     roles = current_user.get("role_name", [])
     if "diskominfo" not in roles:

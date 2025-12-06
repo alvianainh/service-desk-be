@@ -6,7 +6,7 @@ from . import models, schemas
 from auth.database import get_db
 from auth.auth import get_current_user, get_user_by_email, get_current_user_masyarakat
 from tickets import models, schemas
-from tickets.models import Tickets, TicketAttachment, TicketCategories, TicketUpdates, TeknisiTags, TeknisiLevels, TicketRatings
+from tickets.models import Tickets, TicketAttachment, TicketCategories, TicketUpdates, TeknisiTags, TeknisiLevels, TicketRatings, Notifications
 from tickets.schemas import TicketCreateSchema, TicketResponseSchema, TicketCategorySchema, TicketForSeksiSchema, TicketTrackResponse, UpdatePriority, ManualPriority, RejectReasonSeksi, RejectReasonBidang, AssignTeknisiSchema
 import uuid
 from auth.models import Opd, Dinas, Roles, Users
@@ -17,6 +17,8 @@ import mimetypes
 from uuid import UUID, uuid4
 from typing import Optional, List
 import aiohttp, os, mimetypes, json
+import asyncio
+from websocket.notifier import push_notification
 
 
 
@@ -262,6 +264,34 @@ def add_ticket_history(
 
     return history
 
+async def update_ticket_status(db, ticket, new_status, updated_by):
+    old = ticket.status_ticket_pengguna
+    ticket.status_ticket_pengguna = new_status
+    db.commit()
+
+    notif = Notifications(
+        user_id=ticket.creates_id,
+        ticket_id=ticket.ticket_id,
+        status=new_status,
+        message=f"Status tiket {ticket.ticket_code} berubah dari {old} ke {new_status}"
+    )
+    db.add(notif)
+    db.commit()
+    db.refresh(notif)
+
+    payload = {
+        "id": str(notif.id),
+        "ticket_id": str(ticket.ticket_id),
+        "ticket_code": ticket.ticket_code,
+        "old_status": old,
+        "new_status": new_status,
+        "message": notif.message,
+        "user_id": str(ticket.creates_id)
+    }
+
+    asyncio.create_task(push_notification(payload))
+
+
 
 # TEKNISI
 @router.get("/tickets/teknisi")
@@ -452,7 +482,7 @@ def get_ticket_detail_for_teknisi(
 
 
 @router.put("/tickets/teknisi/{ticket_id}/process")
-def teknisi_start_processing(
+async def teknisi_start_processing(
     ticket_id: str,
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user_masyarakat)
@@ -518,6 +548,13 @@ def teknisi_start_processing(
         extra={"notes": "Tiket dibuat melalui pelaporan online"}
     )
 
+    await update_ticket_status(
+        db=db,
+        ticket=ticket,
+        new_status="Proses Pengerjaan Teknisi",
+        updated_by=current_user["id"]
+    )
+
     return {
         "message": "Tiket berhasil diperbarui menjadi diproses oleh teknisi.",
         "ticket_id": str(ticket.ticket_id),
@@ -530,7 +567,7 @@ def teknisi_start_processing(
 
 
 @router.put("/tickets/teknisi/{ticket_id}/complete")
-def teknisi_complete_ticket(
+async def teknisi_complete_ticket(
     ticket_id: str,
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user_masyarakat)
@@ -601,6 +638,13 @@ def teknisi_complete_ticket(
         new_status=ticket.status, 
         updated_by=UUID(current_user["id"]),
         extra={"notes": "Tiket dibuat melalui pelaporan online"}
+    )
+
+    await update_ticket_status(
+        db=db,
+        ticket=ticket,
+        new_status="Selesai",
+        updated_by=current_user["id"]
     )
 
     return {

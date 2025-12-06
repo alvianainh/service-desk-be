@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Text, DateTime, ForeignKey, CheckConstraint, JSON, Integer, TIMESTAMP, UUID
+from sqlalchemy import Column, String, Text, DateTime, ForeignKey, CheckConstraint, JSON, Integer, TIMESTAMP, UUID, Boolean
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import relationship
@@ -318,6 +318,28 @@ class WarRoomSeksi(Base):
 
     war_room = relationship("WarRoom", back_populates="seksi_list")
 
+class Notifications(Base):
+    __tablename__ = "notifications"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False
+    )
+    status = Column(String, nullable=True)
+
+    ticket_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("tickets.ticket_id", ondelete="SET NULL"),
+        nullable=True
+    )
+
+    message = Column(Text, nullable=False)
+    is_read = Column(Boolean, default=False)
+
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
 # class TicketUpdates(Base):
 #     __tablename__ = "ticket_updates"

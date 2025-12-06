@@ -250,15 +250,77 @@ ASSET_PROFILE_URL = "https://arise-app.my.id/api/account-management"
 #         raise HTTPException(status_code=401, detail="Token tidak valid untuk kedua sistem")
 
 
+
+async def get_current_user_universal_from_token(token: str):
+    db: Session = next(get_db())
+
+    # 1. Validasi token lokal
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id = payload.get("sub")
+
+        if user_id:
+            user = (
+                db.query(Users)
+                .join(Roles, Users.role_id == Roles.role_id)
+                .filter(Users.id == user_id)
+                .first()
+            )
+
+            if user:
+                dinas = db.query(Dinas).filter(Dinas.id == user.opd_id).first()
+
+                return {
+                    "id": str(user.id),
+                    "email": user.email,
+                    "full_name": user.full_name,
+                    "role_id": user.role_id,
+                    "dinas_id": user.opd_id,
+                    "role_name": user.role.role_name if user.role else None,
+                    "dinas_name": dinas.nama if dinas else None,
+                    "is_sso": False
+                }
+
+    except Exception:
+        pass
+
+    # 2. Validasi token ke API SSO
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                "https://arise-app.my.id/api/me",
+                headers={"Authorization": f"Bearer {token}"}
+            ) as res:
+
+                if res.status != 200:
+                    raise HTTPException(status_code=401, detail="Invalid SSO token")
+
+                data = await res.json()
+                aset_user = data.get("user")
+
+        local_user = sync_user_from_aset(db, aset_user)
+        dinas = db.query(Dinas).filter(Dinas.id == local_user.opd_id).first()
+
+        return {
+            "id": str(local_user.id),
+            "email": local_user.email,
+            "full_name": local_user.full_name,
+            "role_id": local_user.role_id,
+            "dinas_id": local_user.opd_id,
+            "role_name": local_user.role.role_name if local_user.role else None,
+            "dinas_name": dinas.nama if dinas else None,
+            "is_sso": True
+        }
+
+    except Exception:
+        raise HTTPException(status_code=401, detail="Token tidak valid")
+
 async def get_current_user_universal(
     credentials: HTTPAuthorizationCredentials = Depends(security),
     db: Session = Depends(get_db)
 ):
     token = credentials.credentials
 
-    # ======================
-    # 1. Cek LOCAL JWT
-    # ======================
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         user_id = payload.get("sub")
@@ -288,11 +350,8 @@ async def get_current_user_universal(
                 }
 
     except Exception:
-        pass  # lanjut ke SSO
+        pass
 
-    # ======================
-    # 2. Cek Token SSO ASET
-    # ======================
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(

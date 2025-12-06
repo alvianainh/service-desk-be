@@ -6,7 +6,7 @@ from . import models, schemas
 from auth.database import get_db
 from auth.auth import get_current_user, get_user_by_email, get_current_user_masyarakat, get_current_user_universal
 from tickets import models, schemas
-from tickets.models import Tickets, TicketAttachment, TicketCategories, TicketUpdates, TeknisiTags, TeknisiLevels, TicketRatings
+from tickets.models import Tickets, TicketAttachment, TicketCategories, TicketUpdates, TeknisiTags, TeknisiLevels, TicketRatings, Notifications
 from tickets.schemas import TicketCreateSchema, TicketResponseSchema, TicketCategorySchema, TicketForSeksiSchema, TicketTrackResponse, UpdatePriority, ManualPriority, RejectReasonSeksi, RejectReasonBidang, AssignTeknisiSchema
 import uuid
 from auth.models import Opd, Dinas, Roles, Users
@@ -17,6 +17,8 @@ import mimetypes
 from uuid import UUID, uuid4
 from typing import Optional, List
 import aiohttp, os, mimetypes, json
+import asyncio
+from websocket.notifier import push_notification
 
 
 
@@ -235,6 +237,33 @@ def add_ticket_history(
     db.refresh(history)
 
     return history
+
+async def update_ticket_status(db, ticket, new_status, updated_by):
+    old = ticket.status_ticket_pengguna
+    ticket.status_ticket_pengguna = new_status
+    db.commit()
+
+    notif = Notifications(
+        user_id=ticket.creates_id,
+        ticket_id=ticket.ticket_id,
+        status=new_status,
+        message=f"Status tiket {ticket.ticket_code} berubah dari {old} ke {new_status}"
+    )
+    db.add(notif)
+    db.commit()
+    db.refresh(notif)
+
+    payload = {
+        "id": str(notif.id),
+        "ticket_id": str(ticket.ticket_id),
+        "ticket_code": ticket.ticket_code,
+        "old_status": old,
+        "new_status": new_status,
+        "message": notif.message,
+        "user_id": str(ticket.creates_id)
+    }
+
+    asyncio.create_task(push_notification(payload))
 
 
 
@@ -754,6 +783,12 @@ async def reopen_ticket(
     # db.add(new_update)
     db.commit()
 
+    await update_ticket_status(
+        db=db,
+        ticket=ticket,
+        new_status="Menunggu Diproses",
+        updated_by=current_user["id"]
+    )
 
     uploaded_files = []
     if files:
@@ -780,6 +815,170 @@ async def reopen_ticket(
         "uploaded_files": uploaded_files
     }
 
+
+@router.get("/notifications")
+def get_notifications(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user_universal)
+):
+
+    user_id = current_user["id"]
+
+    notifications = (
+        db.query(
+            Notifications.id.label("notification_id"),
+            Notifications.ticket_id,
+            Notifications.message,
+            Notifications.status,           
+            Notifications.is_read,
+            Notifications.created_at,
+            Tickets.ticket_code,
+            Tickets.request_type,
+            Tickets.opd_id_tickets.label("opd_id_tiket"),
+            Tickets.status_ticket_pengguna,
+            Dinas.nama.label("nama_dinas")
+        )
+        .join(Tickets, Tickets.ticket_id == Notifications.ticket_id)
+        .join(Dinas, Dinas.id == Tickets.opd_id_tickets)
+        .filter(Notifications.user_id == user_id)
+        .order_by(Notifications.created_at.desc())
+        .all()
+    )
+
+    return {
+        "status": "success",
+        "count": len(notifications),
+        "data": [
+            {
+                "notification_id": str(n.notification_id),
+                "ticket_id": str(n.ticket_id) if n.ticket_id else None,
+                "ticket_code": n.ticket_code,
+                "request_type": n.request_type,
+                "opd_id_tiket": str(n.opd_id_tiket),
+                "nama_dinas": n.nama_dinas,
+                "status_ticket_pengguna": n.status,
+                "message": n.message,
+                "is_read": n.is_read,
+                "created_at": n.created_at
+            }
+            for n in notifications
+        ]
+    }
+
+@router.get("/notifications/{notification_id}")
+def get_notification_by_id(
+    notification_id: str,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user_universal)
+):
+
+    user_id = current_user["id"]
+
+    notif = (
+        db.query(
+            Notifications.id.label("notification_id"),
+            Notifications.ticket_id,
+            Notifications.message,
+            Notifications.status,
+            Notifications.is_read,
+            Notifications.created_at,
+            Tickets.ticket_code,
+            Tickets.request_type,
+            Tickets.opd_id_tickets.label("opd_id_tiket"),
+            Tickets.status_ticket_pengguna,
+            Dinas.nama.label("nama_dinas")
+        )
+        .join(Tickets, Tickets.ticket_id == Notifications.ticket_id)
+        .join(Dinas, Dinas.id == Tickets.opd_id_tickets)
+        .filter(
+            Notifications.id == notification_id,
+            Notifications.user_id == user_id     
+        )
+        .first()
+    )
+
+    if not notif:
+        raise HTTPException(
+            status_code=404,
+            detail="Notification tidak ditemukan atau tidak milik Anda"
+        )
+
+    return {
+        "status": "success",
+        "data": {
+            "notification_id": str(notif.notification_id),
+            "ticket_id": str(notif.ticket_id) if notif.ticket_id else None,
+            "ticket_code": notif.ticket_code,
+            "request_type": notif.request_type,
+            "opd_id_tiket": str(notif.opd_id_tiket),
+            "nama_dinas": notif.nama_dinas,
+            "status_ticket_pengguna": notif.status,
+            "message": notif.message,
+            "is_read": notif.is_read,
+            "created_at": notif.created_at
+        }
+    }
+
+@router.patch("/notifications/{notification_id}/read")
+def mark_notification_as_read(
+    notification_id: str,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user_universal)
+):
+
+    user_id = current_user["id"]
+
+    notif = (
+        db.query(Notifications)
+        .filter(Notifications.id == notification_id)
+        .first()
+    )
+
+    if not notif:
+        raise HTTPException(
+            status_code=404,
+            detail="Notifikasi tidak ditemukan"
+        )
+
+    if str(notif.user_id) != str(user_id):
+        raise HTTPException(
+            status_code=403,
+            detail="Anda tidak berhak mengakses notifikasi ini"
+        )
+
+    notif.is_read = True
+    db.commit()
+    db.refresh(notif)
+
+    return {
+        "status": "success",
+        "message": "Notifikasi telah ditandai sebagai dibaca",
+        "data": {
+            "notification_id": str(notif.id),
+            "is_read": notif.is_read
+        }
+    }
+
+
+@router.patch("/notifications/read-all")
+def mark_all_notifications_as_read(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user_universal)
+):
+    user_id = current_user["id"]
+
+    updated = (
+        db.query(Notifications)
+        .filter(Notifications.user_id == user_id, Notifications.is_read == False)
+        .update({Notifications.is_read: True})
+    )
+
+    db.commit()
+
+    return {
+        "status": "success",
+        "message": f"{updated} notifications marked as read"
+    }
 
 
 
