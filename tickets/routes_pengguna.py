@@ -210,6 +210,34 @@ def map_role_to_ticket_source(role_name: str):
     return "masyarakat"
 
 
+def add_ticket_history(
+    db,
+    ticket,
+    new_status: str,
+    old_status: str, 
+    updated_by: UUID,
+    extra: dict = None
+):
+    history = models.TicketHistory(
+        ticket_id=ticket.ticket_id,
+        old_status=old_status,
+        new_status=new_status,
+        updated_by_user_id=updated_by,
+        pengerjaan_awal=ticket.pengerjaan_awal,
+        pengerjaan_akhir=ticket.pengerjaan_akhir,
+        pengerjaan_awal_teknisi=ticket.pengerjaan_awal_teknisi,
+        pengerjaan_akhir_teknisi=ticket.pengerjaan_akhir_teknisi,
+        extra_data=extra or {}
+    )
+
+    db.add(history)
+    db.commit()
+    db.refresh(history)
+
+    return history
+
+
+
 
 #MASYARAKAT
 @router.get("/tickets/masyarakat/finished")
@@ -648,43 +676,153 @@ def give_ticket_rating(
         }
     }
 
-
-@router.get("/track-ticket/{ticket_code}")
-def track_ticket(
-    ticket_code: str,
+@router.patch("/tickets/reopen/{ticket_id}")
+async def reopen_ticket(
+    ticket_id: str,
+    alasan_reopen: str = Form(...),
+    expected_resolution: Optional[str] = Form(None),
+    files: Optional[List[UploadFile]] = File(None),
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user) 
+    current_user: dict = Depends(get_current_user_universal)
 ):
-    user_id = current_user.get("id")
 
+    user_id = current_user.get("id")
 
     ticket = (
         db.query(models.Tickets)
-        .filter(models.Tickets.ticket_code == ticket_code)
+        .filter(models.Tickets.ticket_id == ticket_id)
         .first()
     )
 
     if not ticket:
-        raise HTTPException(status_code=404, detail="Tiket tidak ditemukan.")
+        raise HTTPException(404, "Tiket tidak ditemukan")
 
     if str(ticket.creates_id) != str(user_id):
+        raise HTTPException(403, "Anda tidak berhak membuka ulang tiket ini")
+
+    if ticket.status not in ["selesai"]:
         raise HTTPException(
-            status_code=403,
-            detail="Akses ditolak: Anda bukan pembuat tiket ini."
+            400,
+            f"Tiket dengan status '{ticket.status}' tidak dapat diajukan kembali"
         )
 
-    opd = (
-        db.query(Dinas)
-        .filter(Dinas.id == ticket.opd_id_tickets)
-        .first()
+    old_status = ticket.status
+
+    ticket.verified_seksi_id = None
+    ticket.verified_bidang_id = None
+    ticket.status_ticket_seksi = "Reopen"
+    ticket.assigned_teknisi_id = None
+    ticket.status_ticket_teknisi = "Reopen"
+    ticket.pengerjaan_awal = None
+    ticket.pengerjaan_akhir = None
+    ticket.pengerjaan_awal_teknisi = None
+    ticket.pengerjaan_akhir_teknisi = None
+    ticket.priority = None
+
+
+    ticket.status = "Reopen"
+    ticket.ticket_stage = "reopen-draft"
+    ticket.status_ticket_pengguna = "Diajukan Kembali"
+    ticket.alasan_reopen = alasan_reopen
+    ticket.expected_resolution = expected_resolution
+    ticket.updated_at = datetime.utcnow()
+
+    db.commit()
+    db.refresh(ticket)
+
+
+    add_ticket_history(
+        db=db,
+        ticket=ticket,
+        old_status=old_status,
+        new_status=ticket.status,
+        updated_by=UUID(current_user["id"]),
+        extra={
+            "notes": "Tiket diajukan kembali oleh pengguna",
+            "alasan": alasan_reopen
+        }
     )
 
-    opd_name = opd.nama if opd else None
+    # --- TICKET UPDATES ---
+    # new_update = models.TicketUpdates(
+    #     status_change=ticket.status,
+    #     notes=alasan_reopen,
+    #     makes_by_id=UUID(current_user["id"]),
+    #     ticket_id=ticket.ticket_id
+    # )
+
+    # db.add(new_update)
+    db.commit()
+
+
+    uploaded_files = []
+    if files:
+        for file in files:
+            try:
+                file_url = upload_supabase_file("docs", ticket.ticket_id, file)
+                new_attach = models.TicketAttachment(
+                    attachment_id=uuid4(),
+                    has_id=ticket.ticket_id,
+                    uploaded_at=datetime.utcnow(),
+                    file_path=file_url
+                )
+                db.add(new_attach)
+                db.commit()
+                uploaded_files.append(file_url)
+            except Exception as e:
+                raise HTTPException(500, f"Gagal upload file {file.filename}: {e}")
 
     return {
+        "message": "Tiket berhasil diajukan kembali",
+        "ticket_id": str(ticket.ticket_id),
         "ticket_code": ticket.ticket_code,
-        "status_ticket_pengguna": ticket.status_ticket_pengguna,
-        "request_type": ticket.request_type,
-        "opd_id": ticket.opd_id_tickets,
-        "opd_name": opd_name,
+        "status": ticket.status,
+        "uploaded_files": uploaded_files
     }
+
+
+
+
+
+
+
+
+# @router.get("/track-ticket/{ticket_code}")
+# def track_ticket(
+#     ticket_code: str,
+#     db: Session = Depends(get_db),
+#     current_user: dict = Depends(get_current_user) 
+# ):
+#     user_id = current_user.get("id")
+
+
+#     ticket = (
+#         db.query(models.Tickets)
+#         .filter(models.Tickets.ticket_code == ticket_code)
+#         .first()
+#     )
+
+#     if not ticket:
+#         raise HTTPException(status_code=404, detail="Tiket tidak ditemukan.")
+
+#     if str(ticket.creates_id) != str(user_id):
+#         raise HTTPException(
+#             status_code=403,
+#             detail="Akses ditolak: Anda bukan pembuat tiket ini."
+#         )
+
+#     opd = (
+#         db.query(Dinas)
+#         .filter(Dinas.id == ticket.opd_id_tickets)
+#         .first()
+#     )
+
+#     opd_name = opd.nama if opd else None
+
+#     return {
+#         "ticket_code": ticket.ticket_code,
+#         "status_ticket_pengguna": ticket.status_ticket_pengguna,
+#         "request_type": ticket.request_type,
+#         "opd_id": ticket.opd_id_tickets,
+#         "opd_name": opd_name,
+#     }

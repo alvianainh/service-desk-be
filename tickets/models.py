@@ -112,6 +112,7 @@ class Tickets(Base):
     status_ticket_teknisi = Column(String, nullable=True)
     rejection_reason_seksi = Column(String, nullable=True)
     rejection_reason_bidang = Column(String, nullable=True)
+    alasan_reopen = Column(String, nullable=True)
 
     # Relations
     creates_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"))
@@ -120,7 +121,7 @@ class Tickets(Base):
     verified_bidang_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"))
     opd_id_tickets = Column(Integer, ForeignKey("dinas.id"), nullable=True)
     role_id_source = Column(Integer, ForeignKey("roles.role_id"), nullable=True)
-    
+
     pengerjaan_awal = Column(DateTime(timezone=True), nullable=True)
     pengerjaan_akhir = Column(DateTime(timezone=True), nullable=True)
     pengerjaan_awal_teknisi = Column(DateTime, nullable=True)
@@ -276,6 +277,46 @@ class TeknisiLevels(Base):
     # relationship
     users = relationship("Users", back_populates="teknisi_level_obj")
 
+class WarRoom(Base):
+    __tablename__ = "war_rooms"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    ticket_id = Column(UUID(as_uuid=True), ForeignKey("tickets.ticket_id"), nullable=False)
+    title = Column(String(255), nullable=False)
+    link_meet = Column(Text, nullable=True)
+    start_time = Column(DateTime, nullable=False)
+    end_time = Column(DateTime, nullable=False)
+
+    created_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    # relationships
+    opd_list = relationship("WarRoomOPD", back_populates="war_room", cascade="all, delete")
+    seksi_list = relationship("WarRoomSeksi", back_populates="war_room", cascade="all, delete")
+
+    ticket = relationship("Tickets", backref="war_room")
+
+
+class WarRoomOPD(Base):
+    __tablename__ = "war_room_opd"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    war_room_id = Column(UUID(as_uuid=True), ForeignKey("war_rooms.id", ondelete="CASCADE"))
+    opd_id = Column(String, ForeignKey("dinas.id"))   # sesuaikan tipe int/uuid di tabel dinas
+
+    war_room = relationship("WarRoom", back_populates="opd_list")
+
+
+class WarRoomSeksi(Base):
+    __tablename__ = "war_room_seksi"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    war_room_id = Column(UUID(as_uuid=True), ForeignKey("war_rooms.id", ondelete="CASCADE"))
+    seksi_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
+
+    war_room = relationship("WarRoom", back_populates="seksi_list")
 
 
 # class TicketUpdates(Base):

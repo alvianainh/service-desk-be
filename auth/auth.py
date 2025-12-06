@@ -193,13 +193,72 @@ async def get_user_by_email(email: str, db: Session = Depends(database.get_db)):
 ASSET_PROFILE_URL = "https://arise-app.my.id/api/account-management" 
 
 
+# async def get_current_user_universal(
+#     credentials: HTTPAuthorizationCredentials = Depends(security),
+#     db: Session = Depends(get_db)
+# ):
+#     token = credentials.credentials
+
+#     try:
+#         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+#         user_id = payload.get("sub")
+
+#         if user_id:
+#             user = (
+#                 db.query(Users)
+#                 .join(Roles, Users.role_id == Roles.role_id)
+#                 .filter(Users.id == user_id)
+#                 .first()
+#             )
+
+#             if user:
+#                 return {
+#                     "id": str(user.id),
+#                     "email": user.email,
+#                     "full_name": user.full_name,
+#                     "role_name": user.role.role_name,
+#                     "is_sso": False
+#                 }
+
+#     except Exception:
+#         pass   
+
+#     try:
+#         async with aiohttp.ClientSession() as session:
+#             async with session.get(
+#                 "https://arise-app.my.id/api/me",
+#                 headers={"Authorization": f"Bearer {token}"}
+#             ) as res:
+
+#                 if res.status != 200:
+#                     raise HTTPException(status_code=401, detail="Invalid SSO token")
+
+#                 data = await res.json()
+#                 aset_user = data.get("user")
+
+#         local_user = sync_user_from_aset(db, aset_user)
+
+#         return {
+#             "id": str(local_user.id),
+#             "email": local_user.email,
+#             "full_name": local_user.full_name,
+#             "role_name": local_user.role.role_name if local_user.role else None,
+#             "is_sso": True
+#         }
+
+#     except Exception:
+#         raise HTTPException(status_code=401, detail="Token tidak valid untuk kedua sistem")
+
+
 async def get_current_user_universal(
     credentials: HTTPAuthorizationCredentials = Depends(security),
     db: Session = Depends(get_db)
 ):
     token = credentials.credentials
 
-    # 1. Coba validasi token lokal (masyarakat)
+    # ======================
+    # 1. Cek LOCAL JWT
+    # ======================
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         user_id = payload.get("sub")
@@ -213,18 +272,27 @@ async def get_current_user_universal(
             )
 
             if user:
+                dinas = db.query(Dinas).filter(Dinas.id == user.opd_id).first()
+
                 return {
                     "id": str(user.id),
                     "email": user.email,
                     "full_name": user.full_name,
-                    "role_name": user.role.role_name,
+
+                    "role_id": user.role_id,
+                    "dinas_id": user.opd_id,
+                    "role_name": user.role.role_name if user.role else None,
+                    "dinas_name": dinas.nama if dinas else None,
+
                     "is_sso": False
                 }
 
     except Exception:
-        pass   # lanjut ke cek SSO
+        pass  # lanjut ke SSO
 
-    # 2. Jika lokal gagal → coba validasi token SSO
+    # ======================
+    # 2. Cek Token SSO ASET
+    # ======================
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(
@@ -238,20 +306,24 @@ async def get_current_user_universal(
                 data = await res.json()
                 aset_user = data.get("user")
 
-        # sinkronisasi user SSO ke database lokal
         local_user = sync_user_from_aset(db, aset_user)
+        dinas = db.query(Dinas).filter(Dinas.id == local_user.opd_id).first()
 
         return {
             "id": str(local_user.id),
             "email": local_user.email,
             "full_name": local_user.full_name,
+
+            "role_id": local_user.role_id,
+            "dinas_id": local_user.opd_id,
             "role_name": local_user.role.role_name if local_user.role else None,
+            "dinas_name": dinas.nama if dinas else None,
+
             "is_sso": True
         }
 
     except Exception:
         raise HTTPException(status_code=401, detail="Token tidak valid untuk kedua sistem")
-
 
 
 
