@@ -162,6 +162,16 @@ class AssignTeknisiSchema(BaseModel):
     pengerjaan_awal: date
     pengerjaan_akhir: date
 
+class WarRoomCreate(BaseModel):
+    ticket_id: UUID
+    title: str
+    link_meet: Optional[str]
+    start_time: datetime
+    end_time: datetime
+    opd_ids: List[int]
+    seksi_ids: List[UUID]
+
+
 # class TicketTrackResponse(BaseModel):
 #     ticket_id: UUID 
 #     status: str 

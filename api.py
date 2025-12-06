@@ -7,6 +7,8 @@ from tickets import routes_bidang as ticket_routes_bidang
 from tickets import routes_seksi as ticket_routes_seksi
 from tickets import routes_pengguna as ticket_routes_pengguna
 from tickets import routes_admin_opd as ticket_routes_admin_opd
+from tickets import routes_teknisi as ticket_routes_teknisi
+from tickets import routes_admin_kota as ticket_routes_admin_kota
 from opd import routes as opd_routes
 from roles import routes as roles_routes
 from articles import routes as articles_routes
@@ -54,9 +56,11 @@ app.include_router(roles_routes.router, tags=["roles"])
 app.include_router(opd_routes.router)
 app.include_router(roles_routes.router, tags=["roles"])
 app.include_router(ticket_routes.router, prefix="/api", tags=["tickets"])
+app.include_router(ticket_routes_teknisi.router, prefix="/api", tags=["teknisi"])
 app.include_router(ticket_routes_bidang.router, prefix="/api", tags=["bidang"])
 app.include_router(ticket_routes_pengguna.router, prefix="/api", tags=["riwayat pengguna"])
 app.include_router(ticket_routes_admin_opd.router, prefix="/api", tags=["admin opd dashboard"])
+app.include_router(ticket_routes_admin_kota.router, prefix="/api", tags=["admin kota dashboard"])
 # app.include_router(ticket_routes_seksi.router, prefix="/api")
 
 app.include_router(articles_routes.router, tags=["articles"])
