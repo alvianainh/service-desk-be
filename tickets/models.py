@@ -135,6 +135,7 @@ class Tickets(Base):
     request_type = Column(String, nullable=True)
     ticket_stage = Column(String(50), nullable=False, default="user_draft")
 
+    assigned_teknisi = relationship("Users", foreign_keys=[assigned_teknisi_id])
     attachments = relationship("TicketAttachment", back_populates="ticket", cascade="all, delete-orphan")
     creates_user = relationship("Users", foreign_keys=[creates_id])
     history = relationship(
@@ -145,10 +146,10 @@ class Tickets(Base):
 
 
     __table_args__ = (
-        CheckConstraint(
-            "status IN ('Draft', 'Open', 'In Progress', 'Resolved', 'Closed', 'On Hold', 'Verified by Seksi', "
-            "'Rejected by Seksi', 'Rejected by Bidang', 'Verified', 'Verified by Bidang', 'Re-open')"
-        ),
+        # CheckConstraint(
+        #     "status IN ('Draft', 'Open', 'In Progress', 'Resolved', 'Closed', 'On Hold', 'Verified by Seksi', "
+        #     "'Rejected by Seksi', 'Rejected by Bidang', 'Verified', 'Verified by Bidang', 'Re-open')"
+        # ),
         # CheckConstraint("ticket_source IN ('masyarakat', 'pegawai')"),
         CheckConstraint(
             "request_type IS NULL OR request_type IN ('reset_password', 'permohonan_akses', 'permintaan_perangkat')"

@@ -19,6 +19,7 @@ from typing import Optional, List
 import aiohttp, os, mimetypes, json
 import asyncio
 from websocket.notifier import push_notification
+from sqlalchemy.orm import joinedload
 
 
 
@@ -1369,6 +1370,204 @@ async def assign_teknisi(
     )
 
     return {"message": "Teknisi berhasil diassign", "ticket_id": ticket_id}
+
+
+@router.get("/tickets/seksi/assigned")
+def get_assigned_tickets_for_seksi(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user_masyarakat)
+):
+    if current_user.get("role_name") != "seksi":
+        raise HTTPException(
+            status_code=403,
+            detail="Akses ditolak: hanya seksi yang dapat melihat tiket assigned."
+        )
+
+    seksi_opd_id = current_user.get("dinas_id")
+
+    tickets = (
+        db.query(
+            Tickets.ticket_id,
+            Tickets.ticket_code,
+            Tickets.title,
+            Tickets.assigned_teknisi_id,
+            Tickets.pengerjaan_awal,
+            Tickets.pengerjaan_akhir,
+            Tickets.status,
+            Users.full_name.label("nama_teknisi"),
+            Tickets.request_type,
+            Tickets.created_at
+        )
+        .join(Users, Users.id == Tickets.assigned_teknisi_id)
+        .filter(
+            Tickets.opd_id_tickets == seksi_opd_id,
+            Tickets.assigned_teknisi_id.isnot(None)  # sudah diassign teknisi
+        )
+        .order_by(Tickets.created_at.desc())
+        .all()
+    )
+
+    return {
+        "status": "success",
+        "count": len(tickets),
+        "data": [
+            {
+                "ticket_id": str(t.ticket_id),
+                "ticket_code": t.ticket_code,
+                "title": t.title,
+                "assigned_teknisi_id": str(t.assigned_teknisi_id),
+                "nama_teknisi": t.nama_teknisi,
+                "pengerjaan_awal": t.pengerjaan_awal,
+                "pengerjaan_akhir": t.pengerjaan_akhir,
+                "status": t.status,
+                "request_type": t.request_type,
+                "created_at": t.created_at
+            }
+            for t in tickets
+        ]
+    }
+
+
+@router.get("/tickets/seksi/assigned/{teknisi_id}")
+def get_assigned_tickets_by_teknisi(
+    teknisi_id: str,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user_universal)
+):
+    if current_user.get("role_name") != "seksi":
+        raise HTTPException(
+            status_code=403,
+            detail="Akses ditolak: hanya seksi yang dapat melihat tiket assigned."
+        )
+
+    seksi_opd_id = current_user.get("dinas_id")
+
+    tickets = (
+        db.query(
+            Tickets.ticket_id,
+            Tickets.ticket_code,
+            Tickets.title,
+            Tickets.assigned_teknisi_id,
+            Tickets.pengerjaan_awal,
+            Tickets.pengerjaan_akhir,
+            Tickets.status,
+            Users.full_name.label("nama_teknisi"),
+            Tickets.request_type,
+            Tickets.created_at
+        )
+        .join(Users, Users.id == Tickets.assigned_teknisi_id)
+        .filter(
+            Tickets.opd_id_tickets == seksi_opd_id, 
+            Tickets.assigned_teknisi_id == teknisi_id
+        )
+        .order_by(Tickets.created_at.desc())
+        .all()
+    )
+
+    return {
+        "status": "success",
+        "count": len(tickets),
+        "data": [
+            {
+                "ticket_id": str(t.ticket_id),
+                "ticket_code": t.ticket_code,
+                "title": t.title,
+                "assigned_teknisi_id": str(t.assigned_teknisi_id),
+                "nama_teknisi": t.nama_teknisi,
+                "pengerjaan_awal": t.pengerjaan_awal,
+                "pengerjaan_akhir": t.pengerjaan_akhir,
+                "status": t.status,
+                "request_type": t.request_type,
+                "created_at": t.created_at
+            }
+            for t in tickets
+        ]
+    }
+
+
+@router.get("/tickets/seksi/assigned/teknisi/{ticket_id}")
+def get_ticket_detail_assigned_to_teknisi_for_seksi(
+    ticket_id: str,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user_masyarakat)
+):
+
+    if current_user.get("role_name") != "seksi":
+        raise HTTPException(
+            403,
+            "Akses ditolak: hanya seksi yang dapat mengakses detail tiket ini"
+        )
+
+    seksi_opd_id = current_user.get("dinas_id")
+    if not seksi_opd_id:
+        raise HTTPException(400, "User tidak memiliki OPD")
+
+    try:
+        uuid_obj = uuid.UUID(ticket_id)
+    except ValueError:
+        raise HTTPException(400, "ticket_id tidak valid (bukan UUID)")
+
+    ticket = (
+        db.query(models.Tickets)
+        .filter(
+            models.Tickets.ticket_id == uuid_obj,
+            models.Tickets.opd_id_tickets == seksi_opd_id,
+            models.Tickets.assigned_teknisi_id.isnot(None)  # sudah diassign teknisi
+        )
+        .first()
+    )
+
+    if not ticket:
+        raise HTTPException(404, "Tiket tidak ditemukan atau tidak memiliki akses")
+
+    attachments = ticket.attachments if hasattr(ticket, "attachments") else []
+
+    return {
+        "ticket_id": str(ticket.ticket_id),
+        "ticket_code": ticket.ticket_code,
+        "title": ticket.title,
+        "description": ticket.description,
+        "priority": ticket.priority,
+        "status": ticket.status,
+        "created_at": ticket.created_at,
+        "updated_at": ticket.updated_at,
+        "status_ticket_seksi": ticket.status_ticket_seksi,
+
+        "lokasi_kejadian": ticket.lokasi_kejadian,
+        "opd_id_tickets": ticket.opd_id_tickets,
+
+        "creator": {
+            "user_id": str(ticket.creates_id) if ticket.creates_id else None,
+            "full_name": ticket.creates_user.full_name if ticket.creates_user else None,
+            "profile": ticket.creates_user.profile_url if ticket.creates_user else None,
+            "email": ticket.creates_user.email if ticket.creates_user else None,
+        },
+
+        "asset": {
+            "asset_id": ticket.asset_id,
+            "nama_asset": ticket.nama_asset,
+            "kode_bmd": ticket.kode_bmd_asset,
+            "nomor_seri": ticket.nomor_seri_asset,
+            "kategori": ticket.kategori_asset,
+            "subkategori_id": ticket.subkategori_id_asset,
+            "subkategori_nama": ticket.subkategori_nama_asset,
+            "jenis_asset": ticket.jenis_asset,
+            "lokasi_asset": ticket.lokasi_asset,
+            "opd_id_asset": ticket.opd_id_asset,
+        },
+
+        "files": [
+            {
+                "attachment_id": str(a.attachment_id),
+                "file_path": a.file_path,
+                "uploaded_at": a.uploaded_at
+            }
+            for a in attachments
+        ]
+    }
+
+
+
 
 
 @router.get("/seksi/ratings")
