@@ -488,6 +488,7 @@ async def create_public_report(
         "opd_tujuan": new_ticket.opd_id_tickets,
         "created_at": new_ticket.created_at,
         "lokasi_kejadian": new_ticket.lokasi_kejadian,
+        "status_ticket_pengguna": new_ticket.status_ticket_pengguna,
 
 
         "status": "Open",
@@ -614,7 +615,16 @@ async def create_public_report_masyarakat(
         "message": "Laporan berhasil dibuat",
         "ticket_id": str(ticket_uuid),
         "ticket_code": new_ticket.ticket_code, 
-        "status": new_ticket.status,
+        "title": new_ticket.title,
+        "jenis_layanan": new_ticket.request_type,
+        "opd_tujuan": new_ticket.opd_id_tickets,
+        "created_at": new_ticket.created_at,
+        "lokasi_kejadian": new_ticket.lokasi_kejadian,
+        "status_ticket_pengguna": new_ticket.status_ticket_pengguna,
+
+
+        "status": "Open",
+        # "opd_aset": opd_aset,
         "uploaded_files": uploaded_files
     }
 
