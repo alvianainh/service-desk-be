@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Text, Boolean, DateTime, ForeignKey
+from sqlalchemy import Column, String, Text, Boolean, DateTime, ForeignKey, Integer
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from datetime import datetime
@@ -9,7 +9,7 @@ class Chat(Base):
     __tablename__ = "chat"
 
     chat_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    opd_id = Column(UUID(as_uuid=True), ForeignKey("opd.opd_id"), nullable=False)
+    opd_id = Column(Integer, ForeignKey("dinas.id"), nullable=False)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     last_message_at = Column(DateTime, default=datetime.utcnow)

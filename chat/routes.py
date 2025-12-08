@@ -10,7 +10,7 @@ import mimetypes
 from io import BytesIO
 
 from auth.database import get_db
-from auth.auth import get_current_user 
+from auth.auth import get_current_user, get_current_user_universal 
 from .models import Chat, ChatMessage 
 
 router = APIRouter(tags=["chat"])
@@ -22,15 +22,15 @@ SUPABASE_BUCKET = "docs_chat"
 
 @router.post("/chat/send")
 async def send_message(
-    opd_id: UUID = Form(...),
+    opd_id: int = Form(...),  # sekarang int
     message: str = Form(""),
     file: UploadFile = File(None),
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user_universal)
 ):
-
     user_id = UUID(current_user["id"])
 
+    # Cari chat berdasarkan opd_id (int) dan user_id (UUID)
     chat = db.query(Chat).filter(
         Chat.opd_id == opd_id,
         Chat.user_id == user_id
@@ -52,30 +52,15 @@ async def send_message(
         file_path = f"{chat.chat_id}/{uuid.uuid4()}.{file_ext}"
 
         async with aiohttp.ClientSession() as session:
-            upload_url = (
-                f"{SUPABASE_URL}/storage/v1/object/"
-                f"{SUPABASE_BUCKET}/{file_path}"
-            )
-
-            headers = {
-                "Authorization": f"Bearer {SUPABASE_KEY}",
-                "Content-Type": file.content_type
-            }
-
+            upload_url = f"{SUPABASE_URL}/storage/v1/object/{SUPABASE_BUCKET}/{file_path}"
+            headers = {"Authorization": f"Bearer {SUPABASE_KEY}", "Content-Type": file.content_type}
             file_bytes = await file.read()
-
             async with session.put(upload_url, headers=headers, data=file_bytes) as res:
                 if res.status >= 300:
                     detail = await res.text()
-                    raise HTTPException(
-                        status_code=500,
-                        detail=f"Gagal upload file ke Supabase: {detail}"
-                    )
+                    raise HTTPException(status_code=500, detail=f"Gagal upload file ke Supabase: {detail}")
 
-        file_url = (
-            f"{SUPABASE_URL}/storage/v1/object/public/"
-            f"{SUPABASE_BUCKET}/{file_path}"
-        )
+        file_url = f"{SUPABASE_URL}/storage/v1/object/public/{SUPABASE_BUCKET}/{file_path}"
         file_type = file.content_type
 
     new_message = ChatMessage(
@@ -99,17 +84,21 @@ async def send_message(
 
 
 
+
 @router.post("/chat/{chat_id}/send")
 async def send_reply_from_user(
     chat_id: UUID,
     message: str = Form(""),
     file: UploadFile = File(None),
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user_universal)
 ):
-    roles = current_user.get("roles", [])
-    if not any(role in roles for role in ["masyarakat", "pegawai"]):
-        raise HTTPException(status_code=403, detail="Hanya masyarakat atau pegawai yang dapat mengirim pesan")
+    role_name = current_user.get("role_name")
+    if role_name not in ["masyarakat", "opd"]:
+        raise HTTPException(
+            status_code=403,
+            detail="Akses ditolak: hanya masyarakat atau pegawai yang dapat mengakses ini"
+        )
 
     user_id = UUID(current_user["id"])
     chat = db.query(Chat).filter(Chat.chat_id == chat_id, Chat.user_id == user_id).first()
@@ -155,12 +144,14 @@ async def send_reply_from_user(
 async def get_chat_history_for_user(
     chat_id: UUID,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user_universal)
 ):
-    roles = current_user.get("roles", [])
-
-    if not any(role in ["masyarakat", "pegawai"] for role in roles):
-        raise HTTPException(status_code=403, detail="Hanya masyarakat atau pegawai yang dapat melihat riwayat chat")
+    role_name = current_user.get("role_name")
+    if role_name not in ["masyarakat", "opd"]:
+        raise HTTPException(
+            status_code=403,
+            detail="Akses ditolak: hanya masyarakat atau pegawai yang dapat melihat riwayat chat"
+        )
 
     user_id = UUID(current_user["id"])
     chat = (
@@ -195,12 +186,16 @@ async def get_chat_history_for_user(
 @router.get("/chat/opd")
 async def get_chats_for_opd(
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user_universal)
 ):
-    if "seksi" not in current_user.get("roles", []):
-        raise HTTPException(status_code=403, detail="Hanya seksi yang bisa melihat chat ini")
+    role_name = current_user.get("role_name")
+    if role_name != "seksi":
+        raise HTTPException(
+            status_code=403,
+            detail="Akses ditolak: hanya seksi yang bisa melihat chat ini"
+        )
 
-    opd_id = current_user.get("opd_id")
+    opd_id = current_user.get("dinas_id")
     chats = (
         db.query(Chat)
         .options(joinedload(Chat.messages))
@@ -215,12 +210,16 @@ async def get_chats_for_opd(
 async def get_chat_history_for_seksi(
     chat_id: UUID,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user_universal)
 ):
-    if "seksi" not in current_user.get("roles", []):
-        raise HTTPException(status_code=403, detail="Hanya seksi yang dapat melihat riwayat chat")
+    role_name = current_user.get("role_name")
+    if role_name != "seksi":
+        raise HTTPException(
+            status_code=403,
+            detail="Akses ditolak: hanya seksi yang dapat melihat riwayat chat"
+        )
 
-    opd_id = current_user.get("opd_id")
+    opd_id = current_user.get("dinas_id")
     chat = (
         db.query(Chat)
         .options(joinedload(Chat.messages))
@@ -285,12 +284,21 @@ async def reply_to_chat(
     message: str = Form(""),
     file: UploadFile = File(None),
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user_universal)
 ):
-    if "seksi" not in current_user.get("roles", []):
-        raise HTTPException(status_code=403, detail="Hanya seksi yang bisa membalas pesan")
+    role_name = current_user.get("role_name")
+    if role_name != "seksi":
+        raise HTTPException(
+            status_code=403,
+            detail="Akses ditolak: hanya seksi yang bisa membalas pesan"
+        )
 
-    sender_id = UUID(current_user["id"])
+    sender_id_str = current_user.get("id")
+    if not sender_id_str:
+        raise HTTPException(status_code=400, detail="User ID tidak ditemukan")
+    
+    sender_id = UUID(sender_id_str)
+
     chat = db.query(Chat).filter(Chat.chat_id == chat_id).first()
 
     if not chat:
