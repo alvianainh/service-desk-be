@@ -297,9 +297,9 @@ async def update_ticket_status(db, ticket, new_status, updated_by):
 
 @router.get("/asset-barang")
 async def proxy_get_asset_barang(
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user_universal)
 ):
-    token = current_user["token"] 
+    token = current_user["access_token"] 
 
     url = "https://arise-app.my.id/api/asset-barang"
 

@@ -300,6 +300,7 @@ def get_finished_tickets_for_masyarakat(
                 "description": t.description,
                 "priority": t.priority,
                 "status": t.status,
+                "rejection_reason_seksi": t.rejection_reason_seksi,
                 "created_at": t.created_at,
                 "pengerjaan_awal": t.pengerjaan_awal,
                 "pengerjaan_akhir": t.pengerjaan_akhir,
@@ -380,6 +381,7 @@ def get_ticket_detail_for_pengguna(
         "description": ticket.description,
         "priority": ticket.priority,
         "status": ticket.status,
+        "rejection_reason_seksi": t.rejection_reason_seksi,
         "created_at": ticket.created_at,
         "lokasi_kejadian": ticket.lokasi_kejadian,
         "expected_resolution": ticket.expected_resolution,
@@ -519,6 +521,7 @@ def get_finished_tickets_for_user(
                 "description": t.description,
                 "priority": t.priority,
                 "status": t.status,
+                "rejection_reason_seksi": t.rejection_reason_seksi,
                 "created_at": t.created_at,
                 "pengerjaan_awal": t.pengerjaan_awal,
                 "pengerjaan_akhir": t.pengerjaan_akhir,
@@ -585,6 +588,7 @@ def get_ticket_detail_for_pengguna(
         "description": ticket.description,
         "priority": ticket.priority,
         "status": ticket.status,
+        "rejection_reason_seksi": t.rejection_reason_seksi,
         "created_at": ticket.created_at,
         "lokasi_kejadian": ticket.lokasi_kejadian,
         "expected_resolution": ticket.expected_resolution,
@@ -792,7 +796,6 @@ async def reopen_ticket(
         }
     )
 
-    # --- TICKET UPDATES ---
     # new_update = models.TicketUpdates(
     #     status_change=ticket.status,
     #     notes=alasan_reopen,
@@ -876,6 +879,7 @@ def get_notifications(
                 "request_type": n.request_type,
                 "opd_id_tiket": str(n.opd_id_tiket),
                 "nama_dinas": n.nama_dinas,
+                "rejection_reason_seksi": t.rejection_reason_seksi,
                 "status_ticket_pengguna": n.status,
                 "message": n.message,
                 "is_read": n.is_read,
@@ -933,6 +937,7 @@ def get_notification_by_id(
             "opd_id_tiket": str(notif.opd_id_tiket),
             "nama_dinas": notif.nama_dinas,
             "status_ticket_pengguna": notif.status,
+            "rejection_reason_seksi": t.rejection_reason_seksi,
             "message": notif.message,
             "is_read": notif.is_read,
             "created_at": notif.created_at

@@ -335,7 +335,8 @@ async def get_current_user_universal(
                     "role_name": user.role.role_name if user.role else None,
                     "dinas_name": dinas.nama if dinas else None,
 
-                    "is_sso": False
+                    "is_sso": False,
+                    "access_token": token 
                 }
 
     except Exception:
@@ -367,7 +368,8 @@ async def get_current_user_universal(
             "role_name": local_user.role.role_name if local_user.role else None,
             "dinas_name": dinas.nama if dinas else None,
 
-            "is_sso": True
+            "is_sso": True,
+            "access_token": token
         }
 
     except Exception:

@@ -12,7 +12,7 @@ import uuid
 from auth.models import Opd, Dinas, Roles
 import os
 from supabase import create_client, Client
-from sqlalchemy import text
+from sqlalchemy import text, func
 import mimetypes
 from uuid import UUID, uuid4
 from typing import Optional, List
@@ -152,6 +152,122 @@ def add_ticket_history(
     db.refresh(history)
 
     return history
+
+
+EXTERNAL_API_URL = "https://arise-app.my.id/api/penetapan-konteks/kategori-risiko"
+EXTERNAL_API_AREA_DAMPAK = "https://arise-app.my.id/api/penetapan-konteks/area-dampak"
+
+@router.get("/kategori-risiko")
+async def get_kategori_risiko(current_user: dict = Depends(get_current_user_universal)):
+    token = current_user.get("access_token")
+
+    if not token:
+        raise HTTPException(status_code=401, detail="Token user tidak tersedia")
+
+    headers = {
+        "accept": "application/json",
+        "Authorization": f"Bearer {token}",
+    }
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(EXTERNAL_API_URL, headers=headers) as resp:
+                if resp.status >= 400:
+                    detail = await resp.text()
+                    raise HTTPException(status_code=resp.status, detail=detail)
+
+                data = await resp.json()
+                return data 
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/area-dampak")
+async def get_area_dampak(current_user: dict = Depends(get_current_user_universal)):
+    token = current_user.get("access_token")
+
+    if not token:
+        raise HTTPException(status_code=401, detail="Token user tidak tersedia")
+
+    headers = {
+        "accept": "application/json",
+        "Authorization": f"Bearer {token}",
+    }
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(EXTERNAL_API_AREA_DAMPAK, headers=headers) as resp:
+                if resp.status >= 400:
+                    detail = await resp.text()
+                    raise HTTPException(status_code=resp.status, detail=detail)
+
+                data = await resp.json()
+                return data
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/dashboard/bidang")
+def get_dashboard_bidang(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user_universal)
+):
+
+    if current_user.get("role_name") != "bidang":
+        raise HTTPException(
+            status_code=403,
+            detail="Akses ditolak: hanya bidang yang dapat mengakses dashboard ini"
+        )
+
+    bidang_opd_id = current_user.get("dinas_id")
+    if not bidang_opd_id:
+        raise HTTPException(
+            status_code=400,
+            detail="User tidak memiliki OPD"
+        )
+
+    # allowed_request_types = ["pelaporan_online", "pengajuan_pelayanan"]
+
+    # total_tickets = db.query(func.count(models.Tickets.ticket_id)).filter(
+    #     models.Tickets.opd_id_tickets == seksi_opd_id,
+    #     models.Tickets.request_type.in_(allowed_request_types)
+    # ).scalar()
+
+    total_tickets = db.query(func.count(models.Tickets.ticket_id)).filter(
+        models.Tickets.opd_id_tickets == bidang_opd_id,
+        models.Tickets.status == "verified by seksi",
+        models.Tickets.request_type == "pelaporan_online"
+    ).scalar()
+
+    verified_tickets = db.query(func.count(models.Tickets.ticket_id)).filter(
+        models.Tickets.opd_id_tickets == bidang_opd_id,
+        models.Tickets.status == "verified by bidang",
+        models.Tickets.request_type == "pelaporan_online"
+    ).scalar()
+
+    revisi_tickets = db.query(func.count(models.Tickets.ticket_id)).filter(
+        models.Tickets.opd_id_tickets == bidang_opd_id,
+        models.Tickets.status == "rejected by bidang",
+        models.Tickets.request_type == "pelaporan_online"
+    ).scalar()
+
+    rejected_tickets = db.query(func.count(models.Tickets.ticket_id)).filter(
+        models.Tickets.opd_id_tickets == bidang_opd_id,
+        models.Tickets.status == "rejected",
+        models.Tickets.request_type == "pelaporan_online"
+    ).scalar()
+
+    return {
+        "total_tickets": total_tickets,
+        "verified_tickets": verified_tickets,
+        "revisi_tickets": revisi_tickets,
+        "rejected_tickets": rejected_tickets
+    }
 
 
 @router.get("/tickets/bidang/verified")
@@ -327,12 +443,14 @@ def get_ticket_detail_bidang(
 
 
 @router.patch("/tickets/bidang/verify/{ticket_id}")
-def verify_by_bidang(
+async def verify_and_update_ticket_by_bidang(
     ticket_id: str,
+    kategori_risiko_id: int = Form(...),
+    area_dampak_id: int = Form(...),
+    deskripsi_pengendalian: str = Form(...),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user_universal)
 ):
-
     if current_user.get("role_name") != "bidang":
         raise HTTPException(403, "Akses ditolak: hanya admin bidang")
 
@@ -349,30 +467,61 @@ def verify_by_bidang(
         .first()
     )
 
-
     if not ticket:
         raise HTTPException(404, "Tiket tidak valid untuk diverifikasi bidang")
 
-    old_status = ticket.status
+    token = current_user.get("access_token")
+    if not token:
+        raise HTTPException(401, "Token user tidak tersedia")
 
+    headers = {"accept": "application/json", "Authorization": f"Bearer {token}"}
+
+    async with aiohttp.ClientSession() as session:
+        # Ambil kategori risiko
+        async with session.get(EXTERNAL_API_URL, headers=headers) as resp:
+            data = await resp.json()
+            kategori_list = data.get("data", [])
+            kategori = next((k for k in kategori_list if k["id"] == kategori_risiko_id), None)
+            if not kategori:
+                raise HTTPException(400, "Kategori risiko tidak valid")
+
+        # Ambil area dampak
+        async with session.get(EXTERNAL_API_AREA_DAMPAK, headers=headers) as resp:
+            data = await resp.json()
+            area_list = data.get("data", [])
+            area = next((a for a in area_list if a["id"] == area_dampak_id), None)
+            if not area:
+                raise HTTPException(400, "Area dampak tidak valid")
+
+    # Update tiket
     ticket.status = "verified by bidang"
     ticket.ticket_stage = "verified-bidang"
     ticket.verified_bidang_id = bidang_id
     ticket.status_ticket_seksi = "Draft"
     ticket.updated_at = datetime.utcnow()
 
+    ticket.kategori_risiko_id_asset = kategori["id"]
+    ticket.kategori_risiko_nama_asset = kategori["nama"]
+    ticket.kategori_risiko_selera_positif = kategori.get("selera_positif")
+    ticket.kategori_risiko_selera_negatif = kategori.get("selera_negatif")
+
+    ticket.area_dampak_id_asset = area["id"]
+    ticket.area_dampak_nama_asset = area["nama"]
+
+    ticket.deskripsi_pengendalian_bidang = deskripsi_pengendalian
+
     db.commit()
 
     add_ticket_history(
         db=db,
         ticket=ticket,
-        old_status=old_status,
-        new_status=ticket.status, 
+        old_status="verified by seksi",
+        new_status=ticket.status,
         updated_by=UUID(current_user["id"]),
-        extra={"notes": "Tiket dibuat melalui pelaporan online"}
+        extra={"notes": "Tiket diverifikasi dan bidang mengisi info tambahan"}
     )
 
-    return {"message": "Tiket berhasil diverifikasi oleh bidang"}
+    return {"message": "Tiket berhasil diverifikasi oleh bidang dan info tambahan disimpan"}
 
 
 

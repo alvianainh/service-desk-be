@@ -296,6 +296,64 @@ async def update_ticket_status(db, ticket, new_status, updated_by):
 
 
 #SEKSI
+@router.get("/dashboard/seksi")
+def get_dashboard_seksi(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user_universal)
+):
+    # cek role
+    if current_user.get("role_name") != "seksi":
+        raise HTTPException(
+            status_code=403,
+            detail="Akses ditolak: hanya seksi yang dapat mengakses dashboard ini"
+        )
+
+    seksi_opd_id = current_user.get("dinas_id")
+    if not seksi_opd_id:
+        raise HTTPException(
+            status_code=400,
+            detail="User tidak memiliki OPD"
+        )
+
+    # allowed_request_types = ["pelaporan_online", "pengajuan_pelayanan"]
+
+    # total_tickets = db.query(func.count(models.Tickets.ticket_id)).filter(
+    #     models.Tickets.opd_id_tickets == seksi_opd_id,
+    #     models.Tickets.request_type.in_(allowed_request_types)
+    # ).scalar()
+
+    total_tickets = db.query(func.count(models.Tickets.ticket_id)).filter(
+        models.Tickets.opd_id_tickets == seksi_opd_id,
+        models.Tickets.request_type == "pelaporan_online"
+    ).scalar()
+
+    pending_tickets = db.query(func.count(models.Tickets.ticket_id)).filter(
+        models.Tickets.opd_id_tickets == seksi_opd_id,
+        models.Tickets.status_ticket_seksi == "pending",
+        models.Tickets.request_type == "pelaporan_online"
+    ).scalar()
+
+    verified_tickets = db.query(func.count(models.Tickets.ticket_id)).filter(
+        models.Tickets.opd_id_tickets == seksi_opd_id,
+        models.Tickets.status == "verified by seksi",
+        models.Tickets.request_type == "pelaporan_online"
+    ).scalar()
+
+    rejected_tickets = db.query(func.count(models.Tickets.ticket_id)).filter(
+        models.Tickets.opd_id_tickets == seksi_opd_id,
+        models.Tickets.status == "rejected",
+        models.Tickets.request_type == "pelaporan_online"
+    ).scalar()
+
+    return {
+        "total_tickets": total_tickets,
+        "pending_tickets": pending_tickets,
+        "verified_tickets": verified_tickets,
+        "rejected_tickets": rejected_tickets
+    }
+
+
+
 @router.get("/tickets/seksi")
 def get_tickets_for_seksi(
     db: Session = Depends(get_db),
@@ -339,6 +397,7 @@ def get_tickets_for_seksi(
                 "title": t.title,
                 "description": t.description,
                 "status": t.status,
+                "rejection_reason_bidang": t.rejection_reason_bidang,
                 # "stage": t.ticket_stage,
                 "priority": t.priority,
                 "created_at": t.created_at,
@@ -431,6 +490,7 @@ def get_ticket_detail_seksi(
         "title": ticket.title,
         "description": ticket.description,
         "status": ticket.status,
+        "rejection_reason_bidang": tickets.rejection_reason_bidang,
         # "stage": ticket.ticket_stage,
         "created_at": ticket.created_at,
         "priority": ticket.priority,
@@ -789,6 +849,15 @@ def get_tickets_verified_by_bidang_for_seksi(
             "status_ticket_pengguna": t.status_ticket_pengguna,
             "status_ticket_seksi": t.status_ticket_seksi,
 
+            "kategori_risiko_id_asset": t.kategori_risiko_id_asset,
+            "kategori_risiko_nama_asset": t.kategori_risiko_nama_asset,
+            "kategori_risiko_selera_negatif": t.kategori_risiko_selera_negatif,
+            "kategori_risiko_selera_positif": t.kategori_risiko_selera_positif,
+            "area_dampak_id_asset": t.area_dampak_id_asset,
+            "area_dampak_nama_asset": t.area_dampak_nama_asset,
+            "deskripsi_pengendalian_bidang": t.deskripsi_pengendalian_bidang,
+
+
             "opd_id_tickets": t.opd_id_tickets,
             "lokasi_kejadian": t.lokasi_kejadian,
 
@@ -877,6 +946,14 @@ def get_ticket_detail_verified_by_bidang_for_seksi(
 
         "lokasi_kejadian": ticket.lokasi_kejadian,
         "opd_id_tickets": ticket.opd_id_tickets,
+
+        "kategori_risiko_id_asset": ticket.kategori_risiko_id_asset,
+        "kategori_risiko_nama_asset": ticket.kategori_risiko_nama_asset,
+        "kategori_risiko_selera_negatif": ticket.kategori_risiko_selera_negatif,
+        "kategori_risiko_selera_positif": ticket.kategori_risiko_selera_positif,
+        "area_dampak_id_asset": ticket.area_dampak_id_asset,
+        "area_dampak_nama_asset": ticket.area_dampak_nama_asset,
+        "deskripsi_pengendalian_bidang": ticket.deskripsi_pengendalian_bidang,
 
         "creator": {
             "user_id": str(ticket.creates_id) if ticket.creates_id else None,
@@ -1211,6 +1288,15 @@ def get_ticket_detail_assigned_to_teknisi_for_seksi(
         "lokasi_kejadian": ticket.lokasi_kejadian,
         "opd_id_tickets": ticket.opd_id_tickets,
 
+        "kategori_risiko_id_asset": ticket.kategori_risiko_id_asset,
+        "kategori_risiko_nama_asset": ticket.kategori_risiko_nama_asset,
+        "kategori_risiko_selera_negatif": ticket.kategori_risiko_selera_negatif,
+        "kategori_risiko_selera_positif": ticket.kategori_risiko_selera_positif,
+        "area_dampak_id_asset": ticket.area_dampak_id_asset,
+        "area_dampak_nama_asset": ticket.area_dampak_nama_asset,
+        "deskripsi_pengendalian_bidang": ticket.deskripsi_pengendalian_bidang,
+
+
         "creator": {
             "user_id": str(ticket.creates_id) if ticket.creates_id else None,
             "full_name": ticket.creates_user.full_name if ticket.creates_user else None,
@@ -1295,6 +1381,15 @@ def get_ratings_for_seksi(
             "rating": rating.rating if rating else None,
             "comment": rating.comment if rating else None,
             "rated_at": rating.created_at if rating else None,
+
+            "kategori_risiko_id_asset": t.kategori_risiko_id_asset,
+            "kategori_risiko_nama_asset": t.kategori_risiko_nama_asset,
+            "kategori_risiko_selera_negatif": t.kategori_risiko_selera_negatif,
+            "kategori_risiko_selera_positif": t.kategori_risiko_selera_positif,
+            "area_dampak_id_asset": t.area_dampak_id_asset,
+            "area_dampak_nama_asset": t.area_dampak_nama_asset,
+            "deskripsi_pengendalian_bidang": t.deskripsi_pengendalian_bidang,
+
 
             "description": t.description,
             "priority": t.priority,
@@ -1412,6 +1507,14 @@ def get_rating_detail_for_seksi(
         "pengerjaan_akhir": ticket.pengerjaan_akhir,
         "pengerjaan_awal_teknisi": ticket.pengerjaan_awal_teknisi,
         "pengerjaan_akhir_teknisi": ticket.pengerjaan_akhir_teknisi,
+
+        "kategori_risiko_id_asset": ticket.kategori_risiko_id_asset,
+        "kategori_risiko_nama_asset": ticket.kategori_risiko_nama_asset,
+        "kategori_risiko_selera_negatif": ticket.kategori_risiko_selera_negatif,
+        "kategori_risiko_selera_positif": ticket.kategori_risiko_selera_positif,
+        "area_dampak_id_asset": ticket.area_dampak_id_asset,
+        "area_dampak_nama_asset": ticket.area_dampak_nama_asset,
+        "deskripsi_pengendalian_bidang": ticket.deskripsi_pengendalian_bidang,
 
         "creator": {
             "user_id": str(ticket.creates_id) if ticket.creates_id else None,
@@ -1602,6 +1705,14 @@ def get_finished_tickets_by_asset_id(
             "pengerjaan_awal_teknisi": t.pengerjaan_awal_teknisi,
             "pengerjaan_akhir_teknisi": t.pengerjaan_akhir_teknisi,
 
+            "kategori_risiko_id_asset": t.kategori_risiko_id_asset,
+            "kategori_risiko_nama_asset": t.kategori_risiko_nama_asset,
+            "kategori_risiko_selera_negatif": t.kategori_risiko_selera_negatif,
+            "kategori_risiko_selera_positif": t.kategori_risiko_selera_positif,
+            "area_dampak_id_asset": t.area_dampak_id_asset,
+            "area_dampak_nama_asset": t.area_dampak_nama_asset,
+            "deskripsi_pengendalian_bidang": t.deskripsi_pengendalian_bidang,
+
 
             "pelapor": {
                 "user_id": str(t.creates_id) if t.creates_id else None,
@@ -1691,6 +1802,15 @@ def get_finished_ticket_by_id(
         "pengerjaan_akhir": ticket.pengerjaan_akhir,
         "pengerjaan_awal_teknisi": ticket.pengerjaan_awal_teknisi,
         "pengerjaan_akhir_teknisi": ticket.pengerjaan_akhir_teknisi,
+
+        "kategori_risiko_id_asset": ticket.kategori_risiko_id_asset,
+        "kategori_risiko_nama_asset": ticket.kategori_risiko_nama_asset,
+        "kategori_risiko_selera_negatif": ticket.kategori_risiko_selera_negatif,
+        "kategori_risiko_selera_positif": ticket.kategori_risiko_selera_positif,
+        "area_dampak_id_asset": ticket.area_dampak_id_asset,
+        "area_dampak_nama_asset": ticket.area_dampak_nama_asset,
+        "deskripsi_pengendalian_bidang": ticket.deskripsi_pengendalian_bidang,
+
 
         "intensitas_laporan": intensitas,
 

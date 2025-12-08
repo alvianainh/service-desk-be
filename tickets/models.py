@@ -113,6 +113,14 @@ class Tickets(Base):
     rejection_reason_seksi = Column(String, nullable=True)
     rejection_reason_bidang = Column(String, nullable=True)
     alasan_reopen = Column(String, nullable=True)
+    kategori_risiko_id_asset = Column(Integer, nullable=True)
+    kategori_risiko_nama_asset = Column(String, nullable=True)
+    kategori_risiko_selera_positif = Column(String, nullable=True)
+    kategori_risiko_selera_negatif = Column(String, nullable=True)
+
+    area_dampak_id_asset = Column(Integer, nullable=True)
+    area_dampak_nama_asset = Column(String, nullable=True)
+    deskripsi_pengendalian_bidang = Column(String, nullable=True)
 
     # Relations
     creates_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"))
