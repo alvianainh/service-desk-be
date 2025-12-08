@@ -270,7 +270,7 @@ async def update_ticket_status(db, ticket, new_status, updated_by):
 
 #MASYARAKAT
 @router.get("/tickets/masyarakat/finished")
-def get_finished_tickets_for_user(
+def get_finished_tickets_for_masyarakat(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user_universal)
 ):
@@ -308,6 +308,13 @@ def get_finished_tickets_for_user(
                 "status_ticket_pengguna": t.status_ticket_pengguna,
                 "status_ticket_seksi": t.status_ticket_seksi,
                 "status_ticket_teknisi": t.status_ticket_teknisi,
+                "nik": (
+                    db.query(Users)
+                    .filter(Users.id == t.creates_id)
+                    .first()
+                ).nik
+                if db.query(Users).filter(Users.id == t.creates_id).first()
+                else None,
 
                 "rating": (
                     lambda r: {
@@ -520,49 +527,21 @@ def get_finished_tickets_for_user(
                 "status_ticket_pengguna": t.status_ticket_pengguna,
                 "status_ticket_seksi": t.status_ticket_seksi,
                 "status_ticket_teknisi": t.status_ticket_teknisi,
+
+                "rating": (
+                    lambda r: {
+                        "rating": r.rating,
+                        "comment": r.comment,
+                        "created_at": r.created_at,
+                    } if r else None
+                )(
+                    db.query(models.TicketRatings)
+                    .filter(models.TicketRatings.ticket_id == t.ticket_id)
+                    .first()
+                ),
             }
             for t in tickets
         ]
-    }
-
-@router.get("/track-ticket/{ticket_code}")
-async def track_ticket(
-    ticket_code: str,
-    db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user_universal)
-):
-    user_id = current_user.get("id")
-
-
-    ticket = (
-        db.query(models.Tickets)
-        .filter(models.Tickets.ticket_code == ticket_code)
-        .first()
-    )
-
-    if not ticket:
-        raise HTTPException(status_code=404, detail="Tiket tidak ditemukan.")
-
-    if str(ticket.creates_id) != str(user_id):
-        raise HTTPException(
-            status_code=403,
-            detail="Akses ditolak: Anda bukan pembuat tiket ini."
-        )
-
-    opd = (
-        db.query(Dinas)
-        .filter(Dinas.id == ticket.opd_id_tickets)
-        .first()
-    )
-
-    opd_name = opd.nama if opd else None
-
-    return {
-        "ticket_code": ticket.ticket_code,
-        "status_ticket_pengguna": ticket.status_ticket_pengguna,
-        "request_type": ticket.request_type,
-        "opd_id": ticket.opd_id_tickets,
-        "opd_name": opd_name,
     }
 
 
@@ -645,6 +624,47 @@ def get_ticket_detail_for_pengguna(
             }
             for a in attachments
         ]
+    }
+
+
+@router.get("/track-ticket/{ticket_code}")
+async def track_ticket(
+    ticket_code: str,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user_universal)
+):
+    user_id = current_user.get("id")
+
+
+    ticket = (
+        db.query(models.Tickets)
+        .filter(models.Tickets.ticket_code == ticket_code)
+        .first()
+    )
+
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Tiket tidak ditemukan.")
+
+    if str(ticket.creates_id) != str(user_id):
+        raise HTTPException(
+            status_code=403,
+            detail="Akses ditolak: Anda bukan pembuat tiket ini."
+        )
+
+    opd = (
+        db.query(Dinas)
+        .filter(Dinas.id == ticket.opd_id_tickets)
+        .first()
+    )
+
+    opd_name = opd.nama if opd else None
+
+    return {
+        "ticket_code": ticket.ticket_code,
+        "status_ticket_pengguna": ticket.status_ticket_pengguna,
+        "request_type": ticket.request_type,
+        "opd_id": ticket.opd_id_tickets,
+        "opd_name": opd_name,
     }
 
 

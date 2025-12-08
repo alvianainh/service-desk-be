@@ -297,7 +297,7 @@ async def update_ticket_status(db, ticket, new_status, updated_by):
 
 @router.get("/asset-barang")
 async def proxy_get_asset_barang(
-    current_user: dict = Depends(get_current_user_universal)
+    current_user: dict = Depends(get_current_user)
 ):
     token = current_user["token"] 
 
