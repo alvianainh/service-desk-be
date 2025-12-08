@@ -458,14 +458,12 @@ def get_completed_tickets_for_diskominfo(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user_universal)
 ):
-    # Validasi role
     if current_user.get("role_name") != "diskominfo":
         raise HTTPException(
             status_code=403,
             detail="Akses ditolak: hanya admin kota (diskominfo)."
         )
 
-    # Ambil tiket selesai + request_type pelaporan_online
     tickets = (
         db.query(models.Tickets)
         .filter(
@@ -479,7 +477,6 @@ def get_completed_tickets_for_diskominfo(
     results = []
 
     for ticket in tickets:
-        # Ambil rating (bisa None)
         rating = (
             db.query(models.TicketRatings)
             .filter(models.TicketRatings.ticket_id == ticket.ticket_id)
@@ -518,6 +515,7 @@ def get_completed_tickets_for_diskominfo(
                 "full_name": ticket.creates_user.full_name if ticket.creates_user else None,
                 "profile": ticket.creates_user.profile_url if ticket.creates_user else None,
                 "email": ticket.creates_user.email if ticket.creates_user else None,
+                "user_id_asset": ticket.creates_user.user_id_asset if ticket.creates_user else None,
             },
 
             "asset": {
