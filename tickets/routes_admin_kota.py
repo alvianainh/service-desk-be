@@ -452,3 +452,98 @@ def create_war_room(payload: WarRoomCreate,
         "war_room_id": war_room.id
     }
 
+
+@router.get("/admin-kota/tickets/completed")
+def get_completed_tickets_for_diskominfo(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user_universal)
+):
+    # Validasi role
+    if current_user.get("role_name") != "diskominfo":
+        raise HTTPException(
+            status_code=403,
+            detail="Akses ditolak: hanya admin kota (diskominfo)."
+        )
+
+    # Ambil tiket selesai + request_type pelaporan_online
+    tickets = (
+        db.query(models.Tickets)
+        .filter(
+            models.Tickets.status == "selesai",
+            models.Tickets.request_type == "pelaporan_online"
+        )
+        .order_by(models.Tickets.created_at.desc())
+        .all()
+    )
+
+    results = []
+
+    for ticket in tickets:
+        # Ambil rating (bisa None)
+        rating = (
+            db.query(models.TicketRatings)
+            .filter(models.TicketRatings.ticket_id == ticket.ticket_id)
+            .first()
+        )
+
+        attachments = (
+            db.query(models.TicketAttachment)
+            .filter(models.TicketAttachment.has_id == ticket.ticket_id)
+            .all()
+        )
+
+        results.append({
+            "ticket_id": str(ticket.ticket_id),
+            "ticket_code": ticket.ticket_code,
+            "title": ticket.title,
+            "status": ticket.status,
+            "verified_seksi_id": ticket.verified_seksi_id,
+            "opd_id": ticket.opd_id_tickets,
+
+            "rating": rating.rating if rating else None,
+            "comment": rating.comment if rating else None,
+            "rated_at": rating.created_at if rating else None,
+
+            "description": ticket.description,
+            "priority": ticket.priority,
+            "lokasi_kejadian": ticket.lokasi_kejadian,
+            "expected_resolution": ticket.expected_resolution,
+            "pengerjaan_awal": ticket.pengerjaan_awal,
+            "pengerjaan_akhir": ticket.pengerjaan_akhir,
+            "pengerjaan_awal_teknisi": ticket.pengerjaan_awal_teknisi,
+            "pengerjaan_akhir_teknisi": ticket.pengerjaan_akhir_teknisi,
+
+            "creator": {
+                "user_id": str(ticket.creates_id) if ticket.creates_id else None,
+                "full_name": ticket.creates_user.full_name if ticket.creates_user else None,
+                "profile": ticket.creates_user.profile_url if ticket.creates_user else None,
+                "email": ticket.creates_user.email if ticket.creates_user else None,
+            },
+
+            "asset": {
+                "asset_id": ticket.asset_id,
+                "nama_asset": ticket.nama_asset,
+                "kode_bmd": ticket.kode_bmd_asset,
+                "nomor_seri": ticket.nomor_seri_asset,
+                "kategori": ticket.kategori_asset,
+                "subkategori_id": ticket.subkategori_id_asset,
+                "subkategori_nama": ticket.subkategori_nama_asset,
+                "jenis_asset": ticket.jenis_asset,
+                "lokasi_asset": ticket.lokasi_asset,
+                "opd_id_asset": ticket.opd_id_asset,
+            },
+
+            "files": [
+                {
+                    "attachment_id": str(a.attachment_id),
+                    "file_path": a.file_path,
+                    "uploaded_at": a.uploaded_at
+                }
+                for a in attachments
+            ]
+        })
+
+    return {
+        "total": len(results),
+        "data": results
+    }
