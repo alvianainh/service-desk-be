@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from datetime import datetime, time
 from . import models, schemas
 from auth.database import get_db
-from auth.auth import get_current_user, get_user_by_email, get_current_user_masyarakat
+from auth.auth import get_current_user, get_user_by_email, get_current_user_masyarakat, get_current_user_universal
 from tickets import models, schemas
 from tickets.models import Tickets, TicketAttachment, TicketCategories, TicketUpdates, TeknisiTags, TeknisiLevels, TicketRatings, Notifications
 from tickets.schemas import TicketCreateSchema, TicketResponseSchema, TicketCategorySchema, TicketForSeksiSchema, TicketTrackResponse, UpdatePriority, ManualPriority, RejectReasonSeksi, RejectReasonBidang, AssignTeknisiSchema
@@ -297,7 +297,7 @@ async def update_ticket_status(db, ticket, new_status, updated_by):
 @router.get("/tickets/teknisi")
 def get_tickets_for_teknisi(
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user_masyarakat)
+    current_user: dict = Depends(get_current_user_universal)
 ):
     if current_user.get("role_name") != "teknisi":
         raise HTTPException(
@@ -386,7 +386,7 @@ def get_tickets_for_teknisi(
 def get_ticket_detail_for_teknisi(
     ticket_id: str,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user_masyarakat)
+    current_user: dict = Depends(get_current_user_universal)
 ):
     if current_user.get("role_name") != "teknisi":
         raise HTTPException(
@@ -485,7 +485,7 @@ def get_ticket_detail_for_teknisi(
 async def teknisi_start_processing(
     ticket_id: str,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user_masyarakat)
+    current_user: dict = Depends(get_current_user_universal)
 ):
     if current_user.get("role_name") != "teknisi":
         raise HTTPException(
@@ -570,7 +570,7 @@ async def teknisi_start_processing(
 async def teknisi_complete_ticket(
     ticket_id: str,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user_masyarakat)
+    current_user: dict = Depends(get_current_user_universal)
 ):
 
     if current_user.get("role_name") != "teknisi":
@@ -660,7 +660,7 @@ async def teknisi_complete_ticket(
 @router.get("/teknisi/ratings")
 def get_ratings_for_teknisi(
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user_masyarakat)
+    current_user: dict = Depends(get_current_user_universal)
 ):
 
     if current_user.get("role_name") != "teknisi":
@@ -758,7 +758,7 @@ def get_ratings_for_teknisi(
 def get_rating_detail_for_teknisi(
     ticket_id: str,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user_masyarakat)
+    current_user: dict = Depends(get_current_user_universal)
 ):
 
     if current_user.get("role_name") != "teknisi":

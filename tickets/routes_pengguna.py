@@ -272,7 +272,7 @@ async def update_ticket_status(db, ticket, new_status, updated_by):
 @router.get("/tickets/masyarakat/finished")
 def get_finished_tickets_for_user(
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user_masyarakat)
+    current_user: dict = Depends(get_current_user_universal)
 ):
     user_id = current_user.get("id")
 
@@ -331,7 +331,7 @@ def get_finished_tickets_for_user(
 def get_ticket_detail_for_pengguna(
     ticket_id: str,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user_masyarakat)
+    current_user: dict = Depends(get_current_user_universal)
 ):
     user_id = current_user.get("id")
 
@@ -427,7 +427,7 @@ def give_ticket_rating(
     rating: int = Form(...),
     comment: Optional[str] = Form(None),
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user_masyarakat)
+    current_user: dict = Depends(get_current_user_universal)
 ):
     user_id = current_user.get("id")
 
@@ -484,7 +484,7 @@ def give_ticket_rating(
 @router.get("/tickets/pegawai/finished")
 def get_finished_tickets_for_user(
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user_universal)
 ):
     user_id = current_user.get("id")
 
@@ -571,7 +571,7 @@ async def track_ticket(
 def get_ticket_detail_for_pengguna(
     ticket_id: str,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user_universal)
 ):
     user_id = current_user.get("id")
 
@@ -655,7 +655,7 @@ def give_ticket_rating(
     rating: int = Form(...),
     comment: Optional[str] = Form(None),
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user_universal)
 ):
     user_id = current_user.get("id")
 

@@ -252,24 +252,16 @@ ASSET_PROFILE_URL = "https://arise-app.my.id/api/account-management"
 
 
 async def get_current_user_universal_from_token(token: str):
-    db: Session = next(get_db())
+    db: Session = next(get_db())  # pastikan ini aman, jangan panggil async DB sync way
 
-    # 1. Validasi token lokal
+    # validasi token lokal
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         user_id = payload.get("sub")
-
         if user_id:
-            user = (
-                db.query(Users)
-                .join(Roles, Users.role_id == Roles.role_id)
-                .filter(Users.id == user_id)
-                .first()
-            )
-
+            user = db.query(Users).join(Roles).filter(Users.id == user_id).first()
             if user:
                 dinas = db.query(Dinas).filter(Dinas.id == user.opd_id).first()
-
                 return {
                     "id": str(user.id),
                     "email": user.email,
@@ -280,27 +272,23 @@ async def get_current_user_universal_from_token(token: str):
                     "dinas_name": dinas.nama if dinas else None,
                     "is_sso": False
                 }
-
     except Exception:
         pass
 
-    # 2. Validasi token ke API SSO
+    # validasi token ke SSO (async)
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(
                 "https://arise-app.my.id/api/me",
                 headers={"Authorization": f"Bearer {token}"}
             ) as res:
-
                 if res.status != 200:
-                    raise HTTPException(status_code=401, detail="Invalid SSO token")
-
+                    raise Exception("Invalid SSO token")
                 data = await res.json()
                 aset_user = data.get("user")
 
         local_user = sync_user_from_aset(db, aset_user)
         dinas = db.query(Dinas).filter(Dinas.id == local_user.opd_id).first()
-
         return {
             "id": str(local_user.id),
             "email": local_user.email,
@@ -311,9 +299,10 @@ async def get_current_user_universal_from_token(token: str):
             "dinas_name": dinas.nama if dinas else None,
             "is_sso": True
         }
-
     except Exception:
-        raise HTTPException(status_code=401, detail="Token tidak valid")
+        return None
+
+
 
 async def get_current_user_universal(
     credentials: HTTPAuthorizationCredentials = Depends(security),

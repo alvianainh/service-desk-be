@@ -238,7 +238,7 @@ def add_ticket_history(
 @router.get("/admin-opd/ratings")
 def get_ratings_for_admin_opd(
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user_masyarakat)
+    current_user: dict = Depends(get_current_user_universal)
 ):
 
     if current_user.get("role_name") != "admin dinas":
@@ -327,7 +327,7 @@ def get_ratings_for_admin_opd(
 def get_rating_detail_for_admin_opd(
     ticket_id: str,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user_masyarakat)
+    current_user: dict = Depends(get_current_user_universal)
 ):
 
     if current_user.get("role_name") != "admin dinas":

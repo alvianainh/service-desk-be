@@ -265,7 +265,7 @@ def add_ticket_history(
 @router.get("/admin-kota/tickets/critical")
 def get_critical_tickets(
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user_universal)
 ):
     if current_user.get("role_name") != "diskominfo":
         raise HTTPException(403, "Akses ditolak: hanya admin kota.")
@@ -308,7 +308,7 @@ def get_critical_tickets(
 def get_critical_ticket_by_id(
     ticket_id: str,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user_universal)
 ):
     if current_user.get("role_name") != "diskominfo":
         raise HTTPException(403, "Akses ditolak: hanya admin kota.")
@@ -421,7 +421,7 @@ def get_seksi_by_opd(
 @router.post("/war-room")
 def create_war_room(payload: WarRoomCreate, 
                     db: Session = Depends(get_db),
-                    current_user: dict = Depends(get_current_user)):
+                    current_user: dict = Depends(get_current_user_universal)):
 
     if current_user.get("role_name") != "diskominfo":
         raise HTTPException(status_code=403, detail="Hanya admin kota yang dapat membuat war room.")

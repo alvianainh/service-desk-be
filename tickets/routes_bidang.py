@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from datetime import datetime
 from . import models, schemas
 from auth.database import get_db
-from auth.auth import get_current_user, get_user_by_email, get_current_user_masyarakat
+from auth.auth import get_current_user, get_user_by_email, get_current_user_masyarakat, get_current_user_universal
 from tickets import models, schemas
 from tickets.models import Tickets, TicketAttachment, TicketCategories, TicketUpdates, TicketHistory
 from tickets.schemas import TicketCreateSchema, TicketResponseSchema, TicketCategorySchema, TicketForSeksiSchema, TicketTrackResponse, UpdatePriority, ManualPriority, RejectReasonSeksi, RejectReasonBidang
@@ -157,7 +157,7 @@ def add_ticket_history(
 @router.get("/tickets/bidang/verified")
 def get_verified_tickets_for_bidang(
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user_masyarakat)
+    current_user: dict = Depends(get_current_user_universal)
 ):
 
     if current_user.get("role_name") != "bidang":
@@ -237,7 +237,7 @@ def get_verified_tickets_for_bidang(
 def get_ticket_detail_bidang(
     ticket_id: str,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user_masyarakat)
+    current_user: dict = Depends(get_current_user_universal)
 ):
 
     if current_user.get("role_name") != "bidang":
@@ -330,7 +330,7 @@ def get_ticket_detail_bidang(
 def verify_by_bidang(
     ticket_id: str,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user_masyarakat)
+    current_user: dict = Depends(get_current_user_universal)
 ):
 
     if current_user.get("role_name") != "bidang":
@@ -381,7 +381,7 @@ def reject_by_bidang(
     ticket_id: str,
     payload: RejectReasonBidang,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user_masyarakat)
+    current_user: dict = Depends(get_current_user_universal)
 ):
 
     if current_user.get("role_name") != "bidang":
@@ -429,7 +429,7 @@ def reject_by_bidang(
 @router.get("/bidang/ratings")
 def get_ratings_for_bidang(
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user_masyarakat)
+    current_user: dict = Depends(get_current_user_universal)
 ):
 
     if current_user.get("role_name") != "bidang":
@@ -526,7 +526,7 @@ def get_ratings_for_bidang(
 def get_rating_detail_for_bidang(
     ticket_id: str,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user_masyarakat)
+    current_user: dict = Depends(get_current_user_universal)
 ):
 
     if current_user.get("role_name") != "bidang":
