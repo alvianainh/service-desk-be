@@ -20,6 +20,7 @@ import aiohttp, os, mimetypes, json
 import asyncio
 from websocket.notifier import push_notification
 from sqlalchemy.orm import joinedload
+from dotenv import load_dotenv
 
 
 
@@ -87,12 +88,18 @@ from sqlalchemy.orm import joinedload
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
+load_dotenv()
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 BUCKET_NAME = "docs"
 PRIORITY_OPTIONS = ["Low", "Medium", "High", "Critical"]
+
+EXTERNAL_API_URL = os.environ.get("EXTERNAL_API_KATEGORI_RISIKO")
+EXTERNAL_API_AREA_DAMPAK = os.environ.get("EXTERNAL_API_AREA_DAMPAK")
+EXTERNAL_API_UNIT_KERJA = os.environ.get("EXTERNAL_API_UNIT_KERJA")
+
 
 ASSET_BASE = "https://arise-app.my.id/api"
 
@@ -293,6 +300,29 @@ async def update_ticket_status(db, ticket, new_status, updated_by):
 
     asyncio.create_task(push_notification(payload))
 
+
+@router.get("/unit-kerja")
+async def get_unit_kerja(current_user: dict = Depends(get_current_user_universal)):
+    token = current_user.get("access_token")
+    if not token:
+        raise HTTPException(status_code=401, detail="Token user tidak tersedia")
+
+    headers = {
+        "accept": "application/json",
+        "Authorization": f"Bearer {token}"
+    }
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(EXTERNAL_API_UNIT_KERJA, headers=headers) as resp:
+                if resp.status != 200:
+                    raise HTTPException(status_code=resp.status, detail="Gagal fetch data Unit Kerja")
+                
+                data = await resp.json()
+                return data
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/asset-barang")

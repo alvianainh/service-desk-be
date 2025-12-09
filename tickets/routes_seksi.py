@@ -1560,30 +1560,30 @@ def get_finished_tickets_for_seksi(
 
     seksi_opd_id = current_user.get("dinas_id")
 
-    masyarakat_tickets = (
-        db.query(models.Tickets)
-        .filter(
-            models.Tickets.status == "selesai",
-            models.Tickets.opd_id_tickets == seksi_opd_id,
-            models.Tickets.asset_id.is_(None)
-        )
-        .order_by(models.Tickets.created_at.desc())
-        .all()
-    )
+    # masyarakat_tickets = (
+    #     db.query(models.Tickets)
+    #     .filter(
+    #         models.Tickets.status == "selesai",
+    #         models.Tickets.opd_id_tickets == seksi_opd_id,
+    #         models.Tickets.asset_id.is_(None)
+    #     )
+    #     .order_by(models.Tickets.created_at.desc())
+    #     .all()
+    # )
 
-    masyarakat_result = [
-        {
-            "ticket_id": t.ticket_id,
-            "ticket_code": t.ticket_code,
-            "title": t.title,
-            "description": t.description,
-            "status": t.status,
-            "latest_report_date": t.created_at,
-            "asset": None,
-            "intensitas_laporan": None
-        }
-        for t in masyarakat_tickets
-    ]
+    # masyarakat_result = [
+    #     {
+    #         "ticket_id": t.ticket_id,
+    #         "ticket_code": t.ticket_code,
+    #         "title": t.title,
+    #         "description": t.description,
+    #         "status": t.status,
+    #         "latest_report_date": t.created_at,
+    #         "asset": None,
+    #         "intensitas_laporan": None
+    #     }
+    #     for t in masyarakat_tickets
+    # ]
 
     subquery = (
         db.query(
@@ -1647,13 +1647,13 @@ def get_finished_tickets_for_seksi(
             }
         })
 
-    combined = masyarakat_result + aset_result
+    # combined = masyarakat_result + aset_result
 
-    combined_sorted = sorted(combined, key=lambda x: x["latest_report_date"], reverse=True)
+    # combined_sorted = sorted(combined, key=lambda x: x["latest_report_date"], reverse=True)
 
     return {
-        "total_tickets": len(combined_sorted),
-        "data": combined_sorted
+        "total_tickets": len(aset_result),
+        "data": aset_result
     }
 
 

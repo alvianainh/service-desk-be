@@ -17,11 +17,13 @@ import mimetypes
 from uuid import UUID, uuid4
 from typing import Optional, List
 import aiohttp, os, mimetypes, json
+from dotenv import load_dotenv
 
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
+load_dotenv()
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
@@ -154,8 +156,11 @@ def add_ticket_history(
     return history
 
 
-EXTERNAL_API_URL = "https://arise-app.my.id/api/penetapan-konteks/kategori-risiko"
-EXTERNAL_API_AREA_DAMPAK = "https://arise-app.my.id/api/penetapan-konteks/area-dampak"
+
+EXTERNAL_API_URL = os.environ.get("EXTERNAL_API_KATEGORI_RISIKO")
+EXTERNAL_API_AREA_DAMPAK = os.environ.get("EXTERNAL_API_AREA_DAMPAK")
+EXTERNAL_API_UNIT_KERJA = os.environ.get("EXTERNAL_API_UNIT_KERJA")
+
 
 @router.get("/kategori-risiko")
 async def get_kategori_risiko(current_user: dict = Depends(get_current_user_universal)):
