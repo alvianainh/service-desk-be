@@ -294,14 +294,13 @@ async def update_ticket_status(db, ticket, new_status, updated_by):
     asyncio.create_task(push_notification(payload))
 
 
-
 #SEKSI
+#TAMBAHIN PENGAJUAN PELAYANAN
 @router.get("/dashboard/seksi")
 def get_dashboard_seksi(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user_universal)
 ):
-    # cek role
     if current_user.get("role_name") != "seksi":
         raise HTTPException(
             status_code=403,
@@ -379,11 +378,13 @@ def get_tickets_for_seksi(
         "rejected by bidang"   
     ]
 
+    allowed_request_types = ["pelaporan_online", "pengajuan_pelayanan"]
+
     tickets = (
         db.query(models.Tickets)
         .filter(models.Tickets.opd_id_tickets == seksi_opd_id)
         .filter(models.Tickets.status.in_(allowed_status))
-        .filter(models.Tickets.request_type == "pelaporan_online")  
+        .filter(models.Tickets.request_type.in_(allowed_request_types))  
         .order_by(models.Tickets.created_at.desc())
         .all()
     )
@@ -420,6 +421,7 @@ def get_tickets_for_seksi(
 
                 "opd_id_tickets": t.opd_id_tickets,
                 "lokasi_kejadian": t.lokasi_kejadian,
+                ""
 
                 "creator": {
                     "user_id": str(t.creates_id) if t.creates_id else None,
@@ -551,7 +553,6 @@ def get_ticket_detail_seksi(
             for a in attachments
         ]
     }
-
 
 
 @router.put("/tickets/{ticket_id}/priority")

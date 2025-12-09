@@ -946,6 +946,35 @@ def get_notification_by_id(
         }
     }
 
+@router.delete("/notifications/{notification_id}")
+def delete_notification(
+    notification_id: str,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user_universal)
+):
+    user_id = current_user["id"]
+
+    # Cari notifikasi yang sesuai user
+    notif = db.query(Notifications).filter(
+        Notifications.id == notification_id,
+        Notifications.user_id == user_id
+    ).first()
+
+    if not notif:
+        raise HTTPException(
+            status_code=404,
+            detail="Notification tidak ditemukan atau tidak milik Anda"
+        )
+
+    db.delete(notif)
+    db.commit()
+
+    return {
+        "status": "success",
+        "message": f"Notification {notification_id} berhasil dihapus"
+    }
+
+
 @router.patch("/notifications/{notification_id}/read")
 def mark_notification_as_read(
     notification_id: str,
