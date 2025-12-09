@@ -406,28 +406,28 @@ def get_tickets_for_seksi(
                 "status_ticket_seksi": t.status_ticket_seksi,
             
 
-            #     "opd_id_tickets": t.opd_id_tickets,
-            #     "lokasi_kejadian": t.lokasi_kejadian,
+                "opd_id_tickets": t.opd_id_tickets,
+                "lokasi_kejadian": t.lokasi_kejadian,
 
-            #     "creator": {
-            #         "user_id": str(t.creates_id) if t.creates_id else None,
-            #         "full_name": t.creates_user.full_name if t.creates_user else None,
-            #         "profile": t.creates_user.profile_url if t.creates_user else None,
-            #         "email": t.creates_user.email if t.creates_user else None,
-            #     },
+                "creator": {
+                    "user_id": str(t.creates_id) if t.creates_id else None,
+                    "full_name": t.creates_user.full_name if t.creates_user else None,
+                    "profile": t.creates_user.profile_url if t.creates_user else None,
+                    "email": t.creates_user.email if t.creates_user else None,
+                },
 
-            #     "asset": {
-            #         "asset_id": t.asset_id,
-            #         "nama_asset": t.nama_asset,
-            #         "kode_bmd": t.kode_bmd_asset,
-            #         "nomor_seri": t.nomor_seri_asset,
-            #         "kategori": t.kategori_asset,
-            #         "subkategori_id": t.subkategori_id_asset,
-            #         "subkategori_nama": t.subkategori_nama_asset,
-            #         "jenis_asset": t.jenis_asset,
-            #         "lokasi_asset": t.lokasi_asset,
-            #         "opd_id_asset": t.opd_id_asset,
-            #     }
+                "asset": {
+                    "asset_id": t.asset_id,
+                    "nama_asset": t.nama_asset,
+                    "kode_bmd": t.kode_bmd_asset,
+                    "nomor_seri": t.nomor_seri_asset,
+                    "kategori": t.kategori_asset,
+                    "subkategori_id": t.subkategori_id_asset,
+                    "subkategori_nama": t.subkategori_nama_asset,
+                    "jenis_asset": t.jenis_asset,
+                    "lokasi_asset": t.lokasi_asset,
+                    "opd_id_asset": t.opd_id_asset,
+                }
             }
             for t in tickets
         ]
