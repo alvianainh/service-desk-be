@@ -940,7 +940,6 @@ def get_notification_by_id(
             "nama_dinas": notif.nama_dinas,
             "rejection_reason_seksi": notif.rejection_reason_seksi,
             "status_ticket_pengguna": notif.status,
-            "rejection_reason_seksi": t.rejection_reason_seksi,
             "message": notif.message,
             "is_read": notif.is_read,
             "created_at": notif.created_at
