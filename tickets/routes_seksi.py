@@ -388,6 +388,19 @@ def get_tickets_for_seksi(
         .all()
     )
 
+    ticket_ids = [t.ticket_id for t in tickets]
+
+    attachments_all = (
+        db.query(models.TicketAttachment)
+        .filter(models.TicketAttachment.has_id.in_(ticket_ids))
+        .all()
+    )
+
+    # mapping ticket_id -> list of attachments
+    attachments_map = {}
+    for a in attachments_all:
+        attachments_map.setdefault(a.has_id, []).append(a)
+
     return {
         "total": len(tickets),
         "data": [
@@ -427,7 +440,16 @@ def get_tickets_for_seksi(
                     "jenis_asset": t.jenis_asset,
                     "lokasi_asset": t.lokasi_asset,
                     "opd_id_asset": t.opd_id_asset,
-                }
+                },
+                "files": [
+                    {
+                        "attachment_id": str(a.attachment_id),
+                        "file_path": a.file_path,
+                        "uploaded_at": a.uploaded_at
+                    }
+                    for a in attachments_map.get(t.ticket_id, [])
+                ]
+
             }
             for t in tickets
         ]
