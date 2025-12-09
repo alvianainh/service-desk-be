@@ -938,7 +938,7 @@ def get_notification_by_id(
             "request_type": notif.request_type,
             "opd_id_tiket": str(notif.opd_id_tiket),
             "nama_dinas": notif.nama_dinas,
-            "rejection_reason_seksi": n.rejection_reason_seksi,
+            "rejection_reason_seksi": notif.rejection_reason_seksi,
             "status_ticket_pengguna": notif.status,
             "rejection_reason_seksi": t.rejection_reason_seksi,
             "message": notif.message,
