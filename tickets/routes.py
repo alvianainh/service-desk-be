@@ -1,5 +1,5 @@
 import logging
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status, Response
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status, Response, Query
 from sqlalchemy.orm import Session
 from datetime import datetime, time
 from . import models, schemas
@@ -340,11 +340,15 @@ async def get_unit_kerja(current_user: dict = Depends(get_current_user_universal
 
 @router.get("/asset-barang")
 async def proxy_get_asset_barang(
+    search: str = Query(None, description="Kata kunci pencarian asset"),
     current_user: dict = Depends(get_current_user_universal)
 ):
     token = current_user["access_token"] 
 
     url = "https://arise-app.my.id/api/asset-barang"
+    params = {}
+    if search:
+        params["search"] = search
 
     async with aiohttp.ClientSession() as session:
         async with session.get(
@@ -352,7 +356,8 @@ async def proxy_get_asset_barang(
             headers={
                 "Authorization": f"Bearer {token}",
                 "accept": "application/json"
-            }
+            },
+            params=params
         ) as res:
 
             if res.status != 200:

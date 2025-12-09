@@ -396,7 +396,6 @@ def get_tickets_for_seksi(
         .all()
     )
 
-    # mapping ticket_id -> list of attachments
     attachments_map = {}
     for a in attachments_all:
         attachments_map.setdefault(a.has_id, []).append(a)
