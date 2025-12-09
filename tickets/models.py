@@ -121,6 +121,7 @@ class Tickets(Base):
     area_dampak_id_asset = Column(Integer, nullable=True)
     area_dampak_nama_asset = Column(String, nullable=True)
     deskripsi_pengendalian_bidang = Column(String, nullable=True)
+    lokasi_penempatan = Column(String, nullable=True)
 
     # Relations
     creates_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"))
@@ -154,17 +155,14 @@ class Tickets(Base):
 
 
     __table_args__ = (
-        # CheckConstraint(
-        #     "status IN ('Draft', 'Open', 'In Progress', 'Resolved', 'Closed', 'On Hold', 'Verified by Seksi', "
-        #     "'Rejected by Seksi', 'Rejected by Bidang', 'Verified', 'Verified by Bidang', 'Re-open')"
-        # ),
-        # CheckConstraint("ticket_source IN ('masyarakat', 'pegawai')"),
         CheckConstraint(
-            "request_type IS NULL OR request_type IN ('reset_password', 'permohonan_akses', 'permintaan_perangkat')"
+            "ticket_stage IN ('user_draft','user_submit','seksi_draft','seksi_submit','bidang_draft','bidang_submit')",
+            name="tickets_ticket_stage_check"
         ),
         CheckConstraint(
-            "ticket_stage IN ('user_draft','user_submit','seksi_draft','seksi_submit','bidang_draft','bidang_submit')"
-        )
+            "request_type IS NULL OR request_type IN ('reset_password', 'permohonan_akses', 'permintaan_perangkat', 'pelaporan_online', 'pengajuan_pelayanan')",
+            name="tickets_request_type_check"
+        ),
     )
 
 class TicketRatings(Base):

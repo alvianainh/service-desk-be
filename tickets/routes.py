@@ -300,6 +300,19 @@ async def update_ticket_status(db, ticket, new_status, updated_by):
 
     asyncio.create_task(push_notification(payload))
 
+async def fetch_subkategori_name(subkategori_id: int) -> str:
+    url = f"https://arise-app.my.id/api/sub-kategori"
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as res:
+            if res.status != 200:
+                text = await res.text()
+                raise HTTPException(status_code=res.status, detail=f"Error API SUB-KATEGORI: {text}")
+            data = await res.json()
+            for s in data.get("data", []):
+                if s["id"] == subkategori_id:
+                    return s["nama"]
+    return ""
+
 
 @router.get("/unit-kerja")
 async def get_unit_kerja(current_user: dict = Depends(get_current_user_universal)):
@@ -655,6 +668,97 @@ async def create_public_report_masyarakat(
 
         "status": "Open",
         # "opd_aset": opd_aset,
+        "uploaded_files": uploaded_files
+    }
+
+
+@router.post("/pengajuan-pelayanan")
+async def create_service_request(
+    nama_asset: int = Form(...), 
+    title: str = Form(...),
+    lokasi_penempatan: Optional[str] = Form(None),
+    description: str = Form(...),
+    expected_resolution: Optional[str] = Form(None),
+    files: Optional[List[UploadFile]] = File(None),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    token = current_user.get("token")
+    if not token:
+        raise HTTPException(status_code=401, detail="Token SSO tidak tersedia")
+
+    subkategori_nama = await fetch_subkategori_name(nama_asset)
+    ticket_uuid = uuid4()
+    request_type = "pengajuan_pelayanan"
+
+    latest_ticket = db.query(models.Tickets)\
+        .filter(models.Tickets.request_type == request_type)\
+        .order_by(models.Tickets.created_at.desc())\
+        .first()
+
+    if latest_ticket and latest_ticket.ticket_code:
+        try:
+            last_number = int(latest_ticket.ticket_code.split("-")[2])
+        except:
+            last_number = 0
+        next_number = f"{last_number + 1:04d}"
+    else:
+        next_number = "0001"
+
+    ticket_code = f"SVD-PL-{next_number}-PG"
+
+    new_ticket = models.Tickets(
+        ticket_id=ticket_uuid,
+        title=title,
+        description=description,
+        expected_resolution=expected_resolution,
+        status="Open",
+        status_ticket_pengguna="Menunggu Diproses",
+        status_ticket_seksi="Draft",
+        created_at=datetime.utcnow(),
+        creates_id=UUID(current_user["id"]),
+        ticket_stage="Draft",
+        ticket_source="Pegawai",
+        subkategori_id_asset=nama_asset,
+        subkategori_nama_asset=subkategori_nama,
+        lokasi_penempatan=lokasi_penempatan,
+        request_type=request_type,
+        ticket_code=ticket_code
+    )
+
+    db.add(new_ticket)
+    db.commit()
+    db.refresh(new_ticket)
+
+    uploaded_files = []
+    if files:
+        for file in files:
+            try:
+                file_url = upload_supabase_file("docs", ticket_uuid, file)
+                new_attach = models.TicketAttachment(
+                    attachment_id=uuid4(),
+                    has_id=ticket_uuid,
+                    uploaded_at=datetime.utcnow(),
+                    file_path=file_url
+                )
+                db.add(new_attach)
+                db.commit()
+                uploaded_files.append(file_url)
+            except Exception as e:
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Gagal upload file {file.filename}: {str(e)}"
+                )
+
+    return {
+        "message": "Pengajuan pelayanan berhasil dibuat",
+        "ticket_id": str(ticket_uuid),
+        "ticket_code": ticket_code,
+        "title": title,
+        "jenis_layanan": request_type,
+        "lokasi_penempatan": lokasi_penempatan,
+        "description": description,
+        "expected_resolution": expected_resolution,
         "uploaded_files": uploaded_files
     }
 
