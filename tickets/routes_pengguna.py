@@ -381,7 +381,7 @@ def get_ticket_detail_for_pengguna(
         "description": ticket.description,
         "priority": ticket.priority,
         "status": ticket.status,
-        "rejection_reason_seksi": t.rejection_reason_seksi,
+        "rejection_reason_seksi": ticket.rejection_reason_seksi,
         "created_at": ticket.created_at,
         "lokasi_kejadian": ticket.lokasi_kejadian,
         "expected_resolution": ticket.expected_resolution,
