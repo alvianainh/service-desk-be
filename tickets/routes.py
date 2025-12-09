@@ -728,7 +728,8 @@ async def create_service_request(
         subkategori_nama_asset=subkategori_nama,
         lokasi_penempatan=lokasi_penempatan,
         request_type=request_type,
-        ticket_code=ticket_code
+        ticket_code=ticket_code,
+        opd_id_tickets=current_user.get("dinas_id")  
     )
 
     db.add(new_ticket)

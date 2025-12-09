@@ -417,11 +417,10 @@ def get_tickets_for_seksi(
                 "ticket_source": t.ticket_source,
                 "status_ticket_pengguna": t.status_ticket_pengguna,
                 "status_ticket_seksi": t.status_ticket_seksi,
-            
+                "request_type": t.request_type,
 
                 "opd_id_tickets": t.opd_id_tickets,
                 "lokasi_kejadian": t.lokasi_kejadian,
-                ""
 
                 "creator": {
                     "user_id": str(t.creates_id) if t.creates_id else None,
@@ -485,14 +484,25 @@ def get_ticket_detail_seksi(
         "rejected by bidang"   
     ]
 
-    ticket = (
+    allowed_request_types = ["pelaporan_online", "pengajuan_pelayanan"]
+
+    tickets = (
         db.query(models.Tickets)
-        .filter(models.Tickets.ticket_id == ticket_id)
         .filter(models.Tickets.opd_id_tickets == seksi_opd_id)
         .filter(models.Tickets.status.in_(allowed_status))
-        .filter(models.Tickets.request_type == "pelaporan_online")
-        .first()
+        .filter(models.Tickets.request_type.in_(allowed_request_types))  
+        .order_by(models.Tickets.created_at.desc())
+        .all()
     )
+
+    # ticket = (
+    #     db.query(models.Tickets)
+    #     .filter(models.Tickets.ticket_id == ticket_id)
+    #     .filter(models.Tickets.opd_id_tickets == seksi_opd_id)
+    #     .filter(models.Tickets.status.in_(allowed_status))
+    #     .filter(models.Tickets.request_type == "pelaporan_online")
+    #     .first()
+    # )
 
     if not ticket:
         raise HTTPException(
@@ -524,7 +534,8 @@ def get_ticket_detail_seksi(
         "ticket_source": ticket.ticket_source,
         "status_ticket_pengguna": ticket.status_ticket_pengguna,
         "status_ticket_seksi": ticket.status_ticket_seksi,
-        
+        "request_type": t.request_type,
+
         "creator": {
             "user_id": str(ticket.creates_id) if ticket.creates_id else None,
             "full_name": ticket.creates_user.full_name if ticket.creates_user else None,
@@ -576,6 +587,12 @@ async def update_ticket_priority(
 
     if not ticket:
         raise HTTPException(404, "Tiket tidak ditemukan")
+
+    if ticket.request_type != "pelaporan_online":
+        raise HTTPException(
+            status_code=400,
+            detail="Prioritas hanya dapat ditetapkan untuk tiket pelaporan online."
+        )
 
     old_status = ticket.status
 
@@ -691,6 +708,12 @@ async def set_priority_masyarakat(
     if not ticket:
         raise HTTPException(404, "Tiket tidak ditemukan")
 
+    if ticket.request_type != "pelaporan_online":
+        raise HTTPException(
+            status_code=400,
+            detail="Prioritas manual hanya dapat ditetapkan untuk tiket pelaporan online."
+        )
+
     old_status = ticket.status
 
     if ticket.ticket_source != "Masyarakat":
@@ -763,6 +786,97 @@ async def set_priority_masyarakat(
         "ticket_id": ticket_id,
         "priority": ticket.priority
     }
+
+@router.put("/tickets/{ticket_id}/priority/pengajuan")
+async def set_priority_pengajuan_pelayanan(
+    ticket_id: str,
+    payload: schemas.ManualPriority,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user_universal)
+):
+
+    if current_user.get("role_name") != "seksi":
+        raise HTTPException(
+            status_code=403,
+            detail="Akses ditolak: hanya seksi yang dapat mengubah prioritas"
+        )
+
+    ticket = db.query(models.Tickets).filter_by(ticket_id=ticket_id).first()
+    if not ticket:
+        raise HTTPException(404, "Tiket tidak ditemukan")
+
+    if ticket.request_type != "pengajuan_pelayanan":
+        raise HTTPException(
+            status_code=400,
+            detail="Prioritas hanya dapat ditetapkan untuk tiket pengajuan pelayanan."
+        )
+
+    if ticket.ticket_source != "Pegawai":
+        raise HTTPException(
+            status_code=400,
+            detail="Tiket bukan berasal dari Pegawai, gunakan endpoint masyarakat."
+        )
+
+    old_status = ticket.status
+
+    if ticket.status == "rejected":
+        raise HTTPException(
+            400,
+            "Tiket sudah ditolak dan tidak dapat diproses lagi."
+        )
+
+    if ticket.priority is None and ticket.status != "rejected by bidang":
+        pass
+
+    elif ticket.status == "rejected by bidang":
+        ticket.rejection_reason_bidang = None
+        ticket.status_ticket_seksi = "pending"
+
+    else:
+        raise HTTPException(
+            400,
+            f"Tiket sudah memiliki prioritas '{ticket.priority}' dan tidak bisa diubah lagi."
+        )
+
+    valid_priorities = ["low", "medium", "high", "critical"]
+    if payload.priority.lower() not in valid_priorities:
+        raise HTTPException(
+            400,
+            "Prioritas tidak valid, harus salah satu: low, medium, high, critical."
+        )
+
+    ticket.priority = payload.priority.capitalize()
+    ticket.ticket_stage = "pending"
+    ticket.status = "verified by seksi"
+    ticket.status_ticket_seksi = "pending"
+    ticket.status_ticket_pengguna = "proses verifikasi"
+    ticket.verified_seksi_id = current_user.get("id")
+
+    db.commit()
+    db.refresh(ticket)
+
+    add_ticket_history(
+        db=db,
+        ticket=ticket,
+        old_status=old_status,
+        new_status=ticket.status,
+        updated_by=UUID(current_user["id"]),
+        extra={"notes": "Prioritas tiket pengajuan pelayanan ditetapkan manual oleh seksi"}
+    )
+
+    await update_ticket_status(
+        db=db,
+        ticket=ticket,
+        new_status="Proses Verifikasi",
+        updated_by=current_user["id"]
+    )
+
+    return {
+        "message": "Prioritas tiket pengajuan pelayanan berhasil ditetapkan",
+        "ticket_id": ticket_id,
+        "priority": ticket.priority
+    }
+
 
 
 @router.put("/tickets/{ticket_id}/reject")

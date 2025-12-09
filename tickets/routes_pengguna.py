@@ -954,7 +954,6 @@ def delete_notification(
 ):
     user_id = current_user["id"]
 
-    # Cari notifikasi yang sesuai user
     notif = db.query(Notifications).filter(
         Notifications.id == notification_id,
         Notifications.user_id == user_id

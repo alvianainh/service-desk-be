@@ -321,6 +321,7 @@ def get_verified_tickets_for_bidang(
             "priority": ticket.priority,
             "opd_id_tickets": ticket.opd_id_tickets,
             "ticket_source": ticket.ticket_source,
+            "request_type": ticket.request_type,
 
             "creator": {
                 "user_id": str(ticket.creates_id) if ticket.creates_id else None,
