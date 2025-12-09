@@ -335,7 +335,7 @@ def get_dashboard_seksi(
 
     verified_tickets = db.query(func.count(models.Tickets.ticket_id)).filter(
         models.Tickets.opd_id_tickets == seksi_opd_id,
-        models.Tickets.status == "verified by seksi",
+        models.Tickets.status == "verified by bidang",
         models.Tickets.request_type == "pelaporan_online"
     ).scalar()
 
