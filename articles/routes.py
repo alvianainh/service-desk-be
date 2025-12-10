@@ -346,6 +346,52 @@ async def get_my_articles(
         "data": results
     }
 
+@router.get("/articles/{article_id}")
+async def get_article_detail(
+    article_id: str,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user_universal)
+):
+    article = (
+        db.query(Articles)
+        .filter(Articles.article_id == article_id)
+        .first()
+    )
+
+    if not article:
+        raise HTTPException(
+            status_code=404,
+            detail="Artikel tidak ditemukan."
+        )
+
+    tags_data = [
+        {"tag_id": str(tag.tag_id), "tag_name": tag.tag_name}
+        for tag in article.tags
+    ]
+
+    author = article.makes_by if hasattr(article, "makes_by") else None
+
+    return {
+        "status": "success",
+        "data": {
+            "article_id": str(article.article_id),
+            "title": article.title,
+            "content": article.content,
+            "status": article.status,
+            "cover_path": article.cover_path,
+            "created_at": article.created_at,
+            "updated_at": article.updated_at,
+            "tags": tags_data,
+            "author": {
+                "id": str(author.id) if author else None,
+                "name": author.full_name if author else None,
+                "email": author.email if author else None
+            }
+        }
+    }
+
+
+
 
 @router.get("/all", response_model=dict)
 async def get_all_articles(
