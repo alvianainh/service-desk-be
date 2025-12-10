@@ -638,6 +638,7 @@ def get_ticket_detail_seksi(
             "full_name": ticket.creates_user.full_name if ticket.creates_user else None,
             "profile": ticket.creates_user.profile_url if ticket.creates_user else None,
             "email": ticket.creates_user.email if ticket.creates_user else None,
+            "nik": ticket.creates_user.nik if ticket.creates_user else None,
         },
 
         "asset": {
