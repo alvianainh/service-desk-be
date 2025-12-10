@@ -314,7 +314,7 @@ async def fetch_subkategori_name(subkategori_id: int) -> str:
     return ""
 
 
-@router.get("/public/opd")
+@router.get("/public/landing-page")
 def get_all_opd_with_stats(db: Session = Depends(get_db)):
 
     total_opd = db.query(Dinas).count()
