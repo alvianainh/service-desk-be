@@ -314,6 +314,39 @@ async def fetch_subkategori_name(subkategori_id: int) -> str:
     return ""
 
 
+@router.get("/public/opd")
+def get_all_opd_with_stats(db: Session = Depends(get_db)):
+
+    # Total OPD
+    total_opd = db.query(Dinas).count()
+
+    # Total pelaporan
+    total_pelaporan = db.query(Tickets).count()
+
+    # Rating
+    total_rating_value = db.query(func.sum(TicketRatings.rating)).scalar() or 0
+    rating_count = db.query(func.count(TicketRatings.rating_id)).scalar() or 0
+
+
+    # Hitung presentase rating (skala 1–5 ke 0–100%)
+    presentase_rating = (
+        (total_rating_value / (rating_count * 5)) * 100
+        if rating_count > 0 else 0
+    )
+
+    return {
+        "status": "success",
+        "message": "Statistik OPD berhasil diambil",
+        "data": {
+            "total_opd": total_opd,
+            "total_pelaporan": total_pelaporan,
+            "total_rating_value": total_rating_value,
+            "rating_count": rating_count,
+            "presentase_rating": round(presentase_rating, 2)
+        }
+    }
+
+
 @router.get("/unit-kerja")
 async def get_unit_kerja(current_user: dict = Depends(get_current_user_universal)):
     token = current_user.get("access_token")
