@@ -486,13 +486,13 @@ def get_ticket_detail_seksi(
 
     allowed_request_types = ["pelaporan_online", "pengajuan_pelayanan"]
 
-    tickets = (
+    ticket = (
         db.query(models.Tickets)
+        .filter(models.Tickets.ticket_id == ticket_id)
         .filter(models.Tickets.opd_id_tickets == seksi_opd_id)
         .filter(models.Tickets.status.in_(allowed_status))
-        .filter(models.Tickets.request_type.in_(allowed_request_types))  
-        .order_by(models.Tickets.created_at.desc())
-        .all()
+        .filter(models.Tickets.request_type.in_(allowed_request_types))
+        .first()
     )
 
     # ticket = (
@@ -523,7 +523,7 @@ def get_ticket_detail_seksi(
         "title": ticket.title,
         "description": ticket.description,
         "status": ticket.status,
-        "rejection_reason_bidang": tickets.rejection_reason_bidang,
+        "rejection_reason_bidang": ticket.rejection_reason_bidang,
         # "stage": ticket.ticket_stage,
         "created_at": ticket.created_at,
         "priority": ticket.priority,
@@ -534,7 +534,7 @@ def get_ticket_detail_seksi(
         "ticket_source": ticket.ticket_source,
         "status_ticket_pengguna": ticket.status_ticket_pengguna,
         "status_ticket_seksi": ticket.status_ticket_seksi,
-        "request_type": t.request_type,
+        "request_type": ticket.request_type,
 
         "creator": {
             "user_id": str(ticket.creates_id) if ticket.creates_id else None,
