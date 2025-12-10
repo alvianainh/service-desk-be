@@ -298,6 +298,7 @@ class TicketServiceRequests(Base):
     subkategori_id = Column(Integer, nullable=False)
     subkategori_nama = Column(String, nullable=True)
     unit_kerja_nama = Column(String, nullable=True)
+    id_asset = Column(String, nullable=True)
 
     extra_metadata = Column(JSON, nullable=True)
 

@@ -1018,10 +1018,19 @@ async def reject_ticket(
 
     old_status = ticket.status
 
-    if ticket.priority is not None or ticket.status == "rejected":
+    # if ticket.priority is not None or ticket.status == "rejected":
+    #     raise HTTPException(
+    #         400,
+    #         "Tiket sudah diproses set prioritas dan tidak dapat diubah lagi."
+    #     )
+
+    if not (
+        (ticket.priority is not None and ticket.status == "rejected by bidang") or
+        (ticket.priority is None and ticket.status == "Open")
+    ):
         raise HTTPException(
             400,
-            "Tiket sudah diproses set prioritas dan tidak dapat diubah lagi."
+            "Tiket tidak dapat ditolak karena sudah diproses atau status tidak valid."
         )
 
     ticket.status = "rejected"  

@@ -284,7 +284,7 @@ def get_finished_tickets_for_masyarakat(
                 models.Tickets.status == "selesai",
                 models.Tickets.status == "rejected",
             ),
-            models.Tickets.request_type == "pelaporan_online"
+            models.Tickets.request_type.in_(["pelaporan_online", "pengajuan_pelayanan"])
         )
         .order_by(models.Tickets.created_at.desc())
         .all()
@@ -505,7 +505,7 @@ def get_finished_tickets_for_user(
                 models.Tickets.status == "selesai",
                 models.Tickets.status == "rejected",
             ),
-            models.Tickets.request_type == "pelaporan_online"
+            models.Tickets.request_type.in_(["pelaporan_online", "pengajuan_pelayanan"])
         )
         .order_by(models.Tickets.created_at.desc())
         .all()
