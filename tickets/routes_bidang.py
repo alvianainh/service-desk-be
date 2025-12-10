@@ -275,8 +275,8 @@ def get_dashboard_bidang(
     }
 
 
-@router.get("/tickets/bidang/verified")
-def get_verified_tickets_for_bidang(
+@router.get("/tickets/bidang/verified/pelaporan-online")
+def get_verified_pelaporan_online_for_bidang(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user_universal)
 ):
@@ -284,31 +284,27 @@ def get_verified_tickets_for_bidang(
     if current_user.get("role_name") != "bidang":
         raise HTTPException(
             403,
-            "Akses ditolak: hanya admin bidang yang dapat melihat tiket yang diverifikasi oleh seksi"
+            "Akses ditolak: hanya bidang yang dapat melihat tiket ini"
         )
 
     opd_id = current_user.get("dinas_id")
     if not opd_id:
-        raise HTTPException(
-            400,
-            "Akun bidang tidak memiliki dinas_id, hubungi admin sistem."
-        )
+        raise HTTPException(400, "Akun bidang tidak memiliki dinas_id")
 
     tickets = (
         db.query(models.Tickets)
         .filter(
             models.Tickets.status == "verified by seksi",
             models.Tickets.priority.isnot(None),
-            models.Tickets.opd_id_tickets == opd_id
+            models.Tickets.opd_id_tickets == opd_id,
+            models.Tickets.request_type == "pelaporan_online"
         )
         .order_by(models.Tickets.created_at.desc())
         .all()
     )
 
     results = []
-
     for ticket in tickets:
-
         attachments = ticket.attachments if hasattr(ticket, "attachments") else []
 
         results.append({
@@ -348,10 +344,86 @@ def get_verified_tickets_for_bidang(
         })
 
     return {
-        "message": "Daftar tiket yang sudah diverifikasi oleh seksi",
+        "message": "Daftar tiket pelaporan online yang diverifikasi seksi",
         "total": len(results),
         "data": results
     }
+
+
+@router.get("/tickets/bidang/verified/pengajuan-pelayanan")
+def get_verified_pengajuan_pelayanan_for_bidang(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user_universal)
+):
+
+    if current_user.get("role_name") != "bidang":
+        raise HTTPException(
+            403,
+            "Akses ditolak: hanya bidang yang dapat melihat tiket ini"
+        )
+
+    opd_id = current_user.get("dinas_id")
+    if not opd_id:
+        raise HTTPException(400, "Akun bidang tidak memiliki dinas_id")
+
+    tickets = (
+        db.query(models.Tickets)
+        .filter(
+            models.Tickets.status == "verified by seksi",
+            models.Tickets.priority.isnot(None),
+            models.Tickets.opd_id_tickets == opd_id,
+            models.Tickets.request_type == "pengajuan_pelayanan"
+        )
+        .order_by(models.Tickets.created_at.desc())
+        .all()
+    )
+
+    results = []
+    for ticket in tickets:
+        attachments = ticket.attachments if hasattr(ticket, "attachments") else []
+
+        results.append({
+            "ticket_id": str(ticket.ticket_id),
+            "ticket_code": ticket.ticket_code,
+            "title": ticket.title,
+            "status": ticket.status,
+            "created_at": ticket.created_at,
+            "updated_at": ticket.updated_at,
+            "priority": ticket.priority,
+            "opd_id_tickets": ticket.opd_id_tickets,
+            "ticket_source": ticket.ticket_source,
+            "request_type": ticket.request_type,
+
+            "creator": {
+                "user_id": str(ticket.creates_id) if ticket.creates_id else None,
+                "full_name": ticket.creates_user.full_name if ticket.creates_user else None,
+                "profile": ticket.creates_user.profile_url if ticket.creates_user else None,
+                "email": ticket.creates_user.email if ticket.creates_user else None,
+            },
+
+            "asset": {
+                "asset_id": ticket.asset_id,
+                "nama_asset": ticket.nama_asset,
+                "kode_bmd": ticket.kode_bmd_asset,
+                "nomor_seri": ticket.nomor_seri_asset,
+            },
+
+            "files": [
+                {
+                    "attachment_id": str(a.attachment_id),
+                    "file_path": a.file_path,
+                    "uploaded_at": a.uploaded_at
+                }
+                for a in attachments
+            ]
+        })
+
+    return {
+        "message": "Daftar tiket pengajuan pelayanan yang diverifikasi seksi",
+        "total": len(results),
+        "data": results
+    }
+
 
 
 
@@ -411,6 +483,7 @@ def get_ticket_detail_bidang(
         "ticket_source": ticket.ticket_source,
         "status_ticket_pengguna": ticket.status_ticket_pengguna,
         "status_ticket_seksi": ticket.status_ticket_seksi,
+        "request_type": ticket.request_type,
 
         "creator": {
             "user_id": str(ticket.creates_id) if ticket.creates_id else None,
