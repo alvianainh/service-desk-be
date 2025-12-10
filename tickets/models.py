@@ -284,6 +284,29 @@ class TeknisiLevels(Base):
     # relationship
     users = relationship("Users", back_populates="teknisi_level_obj")
 
+class TicketServiceRequests(Base):
+    __tablename__ = "ticket_service_requests"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    ticket_id = Column(UUID(as_uuid=True), ForeignKey("tickets.ticket_id", ondelete="CASCADE"), nullable=False)
+
+    unit_kerja_id = Column(Integer, nullable=False)
+    lokasi_id = Column(Integer, nullable=False)
+    nama_aset_baru = Column(String, nullable=False)
+    kategori_aset = Column(String, nullable=False)           # TI / non-TI
+    subkategori_id = Column(Integer, nullable=False)
+    subkategori_nama = Column(String, nullable=True)
+    unit_kerja_nama = Column(String, nullable=True)
+
+    extra_metadata = Column(JSON, nullable=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow)
+
+    ticket = relationship("Tickets", backref="service_request")
+
+
 class WarRoom(Base):
     __tablename__ = "war_rooms"
 

@@ -171,6 +171,15 @@ class WarRoomCreate(BaseModel):
     opd_ids: List[int]
     seksi_ids: List[UUID]
 
+class ServiceRequestCreate(BaseModel):
+    unit_kerja_id: int
+    lokasi_id: int
+    nama_aset_baru: str
+    kategori_aset: str    
+    subkategori_id: int
+    metadata: Optional[dict] = None
+
+
 
 # class TicketTrackResponse(BaseModel):
 #     ticket_id: UUID 

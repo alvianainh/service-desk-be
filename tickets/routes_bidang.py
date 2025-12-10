@@ -6,7 +6,7 @@ from . import models, schemas
 from auth.database import get_db
 from auth.auth import get_current_user, get_user_by_email, get_current_user_masyarakat, get_current_user_universal
 from tickets import models, schemas
-from tickets.models import Tickets, TicketAttachment, TicketCategories, TicketUpdates, TicketHistory
+from tickets.models import Tickets, TicketAttachment, TicketCategories, TicketUpdates, TicketHistory, TicketServiceRequests
 from tickets.schemas import TicketCreateSchema, TicketResponseSchema, TicketCategorySchema, TicketForSeksiSchema, TicketTrackResponse, UpdatePriority, ManualPriority, RejectReasonSeksi, RejectReasonBidang
 import uuid
 from auth.models import Opd, Dinas, Roles
@@ -387,6 +387,8 @@ def get_verified_pengajuan_pelayanan_for_bidang(
             "ticket_code": ticket.ticket_code,
             "title": ticket.title,
             "status": ticket.status,
+            "lokasi_penempatan": ticket.lokasi_penempatan,
+            "subkategori_nama": ticket.subkategori_nama_asset,
             "created_at": ticket.created_at,
             "updated_at": ticket.updated_at,
             "priority": ticket.priority,
@@ -476,6 +478,8 @@ def get_ticket_detail_bidang(
         # "stage": ticket.ticket_stage,
         "created_at": ticket.created_at,
         "priority": ticket.priority,
+        "lokasi_penempatan": ticket.lokasi_penempatan,
+        "subkategori_nama": ticket.subkategori_nama_asset,
 
         "opd_id_tickets": ticket.opd_id_tickets,
         "lokasi_kejadian": ticket.lokasi_kejadian,
@@ -556,7 +560,6 @@ async def verify_and_update_ticket_by_bidang(
     headers = {"accept": "application/json", "Authorization": f"Bearer {token}"}
 
     async with aiohttp.ClientSession() as session:
-        # Ambil kategori risiko
         async with session.get(EXTERNAL_API_URL, headers=headers) as resp:
             data = await resp.json()
             kategori_list = data.get("data", [])
@@ -564,7 +567,6 @@ async def verify_and_update_ticket_by_bidang(
             if not kategori:
                 raise HTTPException(400, "Kategori risiko tidak valid")
 
-        # Ambil area dampak
         async with session.get(EXTERNAL_API_AREA_DAMPAK, headers=headers) as resp:
             data = await resp.json()
             area_list = data.get("data", [])
@@ -572,7 +574,6 @@ async def verify_and_update_ticket_by_bidang(
             if not area:
                 raise HTTPException(400, "Area dampak tidak valid")
 
-    # Update tiket
     ticket.status = "verified by bidang"
     ticket.ticket_stage = "verified-bidang"
     ticket.verified_bidang_id = bidang_id
@@ -601,6 +602,115 @@ async def verify_and_update_ticket_by_bidang(
     )
 
     return {"message": "Tiket berhasil diverifikasi oleh bidang dan info tambahan disimpan"}
+
+
+@router.patch("/tickets/bidang/verify-pengajuan/{ticket_id}")
+async def verify_pengajuan_pelayanan_by_bidang(
+    ticket_id: str,
+    unit_kerja_id: int = Form(...),
+    lokasi_id: int = Form(...),
+    nama_aset: str = Form(...),
+    kategori_aset: str = Form(...), 
+    sub_kategori_id: int = Form(...),
+
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user_universal)
+):
+
+    if current_user.get("role_name") != "bidang":
+        raise HTTPException(403, "Akses ditolak: hanya admin bidang")
+
+    opd_id = current_user.get("dinas_id")
+    bidang_id = current_user.get("id")
+
+    ticket = (
+        db.query(models.Tickets)
+        .filter(
+            models.Tickets.ticket_id == ticket_id,
+            models.Tickets.opd_id_tickets == opd_id,
+            models.Tickets.status == "verified by seksi",
+            models.Tickets.request_type == "pengajuan_pelayanan"
+        )
+        .first()
+    )
+
+    if not ticket:
+        raise HTTPException(404, "Tiket tidak valid untuk diverifikasi bidang")
+
+    token = current_user.get("access_token")
+    if not token:
+        raise HTTPException(401, "Token user tidak tersedia")
+
+    headers = {"accept": "application/json", "Authorization": f"Bearer {token}"}
+
+    async with aiohttp.ClientSession() as session:
+
+        async with session.get("https://arise-app.my.id/api/unit-kerja", headers=headers) as resp:
+            uk_data = (await resp.json()).get("data", [])
+            allowed_uk = [u for u in uk_data if str(u["dinas_id"]) == str(opd_id)]
+            selected_uk = next((u for u in allowed_uk if u["id"] == unit_kerja_id), None)
+
+            if not selected_uk:
+                raise HTTPException(400, "Unit kerja tidak valid untuk dinas ini")
+
+        # async with session.get("https://arise-app.my.id/api/lokasi", headers=headers) as resp:
+        #     lokasi_data = (await resp.json()).get("data", [])
+        #     selected_lokasi = next((l for l in lokasi_data if l["id"] == lokasi_id), None)
+
+        #     if not selected_lokasi:
+        #         raise HTTPException(400, "Lokasi tidak valid")
+
+        async with session.get("https://arise-app.my.id/api/sub-kategori", headers=headers) as resp:
+            sub_data = (await resp.json()).get("data", [])
+            selected_sub = next((s for s in sub_data if s["id"] == sub_kategori_id), None)
+
+            if not selected_sub:
+                raise HTTPException(400, "Sub-kategori aset tidak valid")
+
+    #selected lokasi temp
+    selected_lokasi = {
+        "id": lokasi_id,
+        "nama": f"Lokasi-{lokasi_id}"  
+    }
+
+    service_req = (
+        db.query(models.TicketServiceRequests)
+        .filter(models.TicketServiceRequests.ticket_id == ticket_id)
+        .first()
+    )
+
+    if not service_req:
+        raise HTTPException(404, "Data pengajuan pelayanan tidak ditemukan")
+
+    service_req.unit_kerja_id = selected_uk["id"]
+    service_req.lokasi_id = selected_lokasi["id"]
+    service_req.nama_aset_baru = nama_aset
+    service_req.kategori_aset = kategori_aset
+    service_req.subkategori_id = selected_sub["id"]
+    service_req.updated_at = datetime.utcnow()
+    service_req.subkategori_nama = selected_sub["nama"]
+    service_req.unit_kerja_nama = selected_uk["nama"]
+
+
+    ticket.status = "verified by bidang"
+    ticket.ticket_stage = "verified-bidang"
+    ticket.verified_bidang_id = bidang_id
+    ticket.status_ticket_seksi = "Draft"
+    ticket.updated_at = datetime.utcnow()
+
+    db.commit()
+
+    add_ticket_history(
+        db=db,
+        ticket=ticket,
+        old_status="verified by seksi",
+        new_status="verified by bidang",
+        updated_by=UUID(current_user["id"]),
+        extra={"notes": "Pengajuan pelayanan diverifikasi bidang"}
+    )
+
+    return {"message": "Pengajuan pelayanan berhasil diverifikasi oleh bidang"}
+
 
 
 

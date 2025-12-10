@@ -6,8 +6,8 @@ from . import models, schemas
 from auth.database import get_db
 from auth.auth import get_current_user, get_user_by_email, get_current_user_masyarakat, get_current_user_universal
 from tickets import models, schemas
-from tickets.models import Tickets, TicketAttachment, TicketCategories, TicketUpdates, TeknisiTags, TeknisiLevels, TicketRatings, WarRoom, WarRoomOPD, WarRoomSeksi, Notifications
-from tickets.schemas import TicketCreateSchema, TicketResponseSchema, TicketCategorySchema, TicketForSeksiSchema, TicketTrackResponse, UpdatePriority, ManualPriority, RejectReasonSeksi, RejectReasonBidang, AssignTeknisiSchema
+from tickets.models import Tickets, TicketAttachment, TicketCategories, TicketUpdates, TeknisiTags, TeknisiLevels, TicketRatings, WarRoom, WarRoomOPD, WarRoomSeksi, Notifications, TicketServiceRequests
+from tickets.schemas import TicketCreateSchema, TicketResponseSchema, TicketCategorySchema, TicketForSeksiSchema, TicketTrackResponse, UpdatePriority, ManualPriority, RejectReasonSeksi, RejectReasonBidang, AssignTeknisiSchema, ServiceRequestCreate
 import uuid
 from auth.models import Opd, Dinas, Roles, Users
 import os
@@ -367,37 +367,100 @@ async def get_unit_kerja(current_user: dict = Depends(get_current_user_universal
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# @router.get("/asset-barang")
+# async def proxy_get_asset_barang(
+#     search: str = Query(None, description="Kata kunci pencarian asset"),
+#     current_user: dict = Depends(get_current_user_universal)
+# ):
+#     token = current_user["access_token"] 
+
+#     url = "https://arise-app.my.id/api/asset-barang"
+#     params = {}
+#     if search:
+#         params["search"] = search
+
+#     async with aiohttp.ClientSession() as session:
+#         async with session.get(
+#             url,
+#             headers={
+#                 "Authorization": f"Bearer {token}",
+#                 "accept": "application/json"
+#             },
+#             params=params
+#         ) as res:
+
+#             if res.status != 200:
+#                 text = await res.text()
+#                 raise HTTPException(
+#                     status_code=res.status,
+#                     detail=text
+#                 )
+
+#             data = await res.json()
+#             return data
+
+
 @router.get("/asset-barang")
 async def proxy_get_asset_barang(
-    search: str = Query(None, description="Kata kunci pencarian asset"),
+    search: str = Query(None),
+    status_filter: str = Query(None),
     current_user: dict = Depends(get_current_user_universal)
 ):
-    token = current_user["access_token"] 
+    token = current_user["access_token"]
+    user_dinas_id = str(current_user.get("dinas_id"))
 
-    url = "https://arise-app.my.id/api/asset-barang"
-    params = {}
-    if search:
-        params["search"] = search
+    if not user_dinas_id:
+        raise HTTPException(400, "User tidak memiliki dinas_id")
+
+    base_url = "https://arise-app.my.id/api/asset-barang"
+    all_assets = []
+    page = 1
 
     async with aiohttp.ClientSession() as session:
-        async with session.get(
-            url,
-            headers={
-                "Authorization": f"Bearer {token}",
-                "accept": "application/json"
-            },
-            params=params
-        ) as res:
+        while True:
+            params = {"page": page}
+            if search:
+                params["search"] = search
+            if status_filter:
+                params["status"] = status_filter
 
-            if res.status != 200:
-                text = await res.text()
-                raise HTTPException(
-                    status_code=res.status,
-                    detail=text
-                )
+            async with session.get(
+                base_url,
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "accept": "application/json"
+                },
+                params=params
+            ) as res:
 
-            data = await res.json()
-            return data
+                if res.status != 200:
+                    text = await res.text()
+                    raise HTTPException(res.status, text)
+
+                json_data = await res.json()
+                data_page = json_data["data"]
+
+                # Ambil asset per halaman
+                all_assets.extend(data_page["data"])
+
+                # Cek apakah masih ada page berikutnya
+                if data_page["current_page"] >= data_page["last_page"]:
+                    break
+
+                page += 1
+
+    # ======= FILTER BERDASARKAN DINAS USER =======
+    filtered_assets = [
+        asset for asset in all_assets
+        if str(asset.get("unit_kerja", {}).get("dinas_id")) == user_dinas_id
+    ]
+
+    return {
+        "status": "success",
+        "total": len(filtered_assets),
+        "dinas_id": user_dinas_id,
+        "data": filtered_assets
+    }
 
 @router.get("/sub-kategori")
 async def get_all_subkategori():
@@ -714,6 +777,7 @@ async def create_service_request(
     description: str = Form(...),
     expected_resolution: Optional[str] = Form(None),
     files: Optional[List[UploadFile]] = File(None),
+
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
@@ -722,13 +786,16 @@ async def create_service_request(
         raise HTTPException(status_code=401, detail="Token SSO tidak tersedia")
 
     subkategori_nama = await fetch_subkategori_name(nama_asset)
+
     ticket_uuid = uuid4()
     request_type = "pengajuan_pelayanan"
 
-    latest_ticket = db.query(models.Tickets)\
-        .filter(models.Tickets.request_type == request_type)\
-        .order_by(models.Tickets.created_at.desc())\
+    latest_ticket = (
+        db.query(models.Tickets)
+        .filter(models.Tickets.request_type == request_type)
+        .order_by(models.Tickets.created_at.desc())
         .first()
+    )
 
     if latest_ticket and latest_ticket.ticket_code:
         try:
@@ -758,12 +825,21 @@ async def create_service_request(
         lokasi_penempatan=lokasi_penempatan,
         request_type=request_type,
         ticket_code=ticket_code,
-        opd_id_tickets=current_user.get("dinas_id")  
+        opd_id_tickets=current_user.get("dinas_id")
     )
 
     db.add(new_ticket)
     db.commit()
     db.refresh(new_ticket)
+
+    new_service_req = models.TicketServiceRequests(
+        ticket_id=ticket_uuid,
+        subkategori_id=nama_asset,
+        extra_metadata=None  
+    )
+
+    db.add(new_service_req)
+    db.commit()
 
     uploaded_files = []
     if files:
@@ -796,6 +872,7 @@ async def create_service_request(
         "expected_resolution": expected_resolution,
         "uploaded_files": uploaded_files
     }
+
 
 
 

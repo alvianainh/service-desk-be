@@ -6,7 +6,7 @@ from . import models, schemas
 from auth.database import get_db
 from auth.auth import get_current_user, get_user_by_email, get_current_user_masyarakat, get_current_user_universal
 from tickets import models, schemas
-from tickets.models import Tickets, TicketAttachment, TicketCategories, TicketUpdates, TeknisiTags, TeknisiLevels, TicketRatings, WarRoom, WarRoomOPD, WarRoomSeksi, Notifications
+from tickets.models import Tickets, TicketAttachment, TicketCategories, TicketUpdates, TeknisiTags, TeknisiLevels, TicketRatings, WarRoom, WarRoomOPD, WarRoomSeksi, Notifications, TicketServiceRequests
 from tickets.schemas import TicketCreateSchema, TicketResponseSchema, TicketCategorySchema, TicketForSeksiSchema, TicketTrackResponse, UpdatePriority, ManualPriority, RejectReasonSeksi, RejectReasonBidang, AssignTeknisiSchema
 import uuid
 from auth.models import Opd, Dinas, Roles, Users
@@ -498,6 +498,14 @@ def get_tickets_pengajuan_pelayanan(
     for a in attachments_all:
         attachments_map.setdefault(a.has_id, []).append(a)
 
+    service_data_all = (
+        db.query(models.TicketServiceRequests)
+        .filter(models.TicketServiceRequests.ticket_id.in_(ticket_ids))
+        .all()
+    )
+
+    service_map = {s.ticket_id: s for s in service_data_all}
+
     return {
         "total": len(tickets),
         "data": [
@@ -506,6 +514,9 @@ def get_tickets_pengajuan_pelayanan(
                 "ticket_code": t.ticket_code,
                 "title": t.title,
                 "description": t.description,
+                "lokasi_penempatan": t.lokasi_penempatan,
+                "sub_kategori_nama": t.subkategori_nama_asset,
+
                 "status": t.status,
                 "rejection_reason_bidang": t.rejection_reason_bidang,
                 "priority": t.priority,
@@ -523,6 +534,17 @@ def get_tickets_pengajuan_pelayanan(
                     "full_name": t.creates_user.full_name if t.creates_user else None,
                     "profile": t.creates_user.profile_url if t.creates_user else None,
                     "email": t.creates_user.email if t.creates_user else None,
+                },
+
+                "pengajuan_pelayanan": {
+                    "unit_kerja_id": service_map[t.ticket_id].unit_kerja_id if t.ticket_id in service_map else None,
+                    "unit_kerja_nama": service_map[t.ticket_id].unit_kerja_nama if t.ticket_id in service_map else None,
+                    "lokasi_id": service_map[t.ticket_id].lokasi_id if t.ticket_id in service_map else None,
+
+                    "nama_aset_baru": service_map[t.ticket_id].nama_aset_baru if t.ticket_id in service_map else None,
+                    "kategori_aset": service_map[t.ticket_id].kategori_aset if t.ticket_id in service_map else None,
+                    "subkategori_id": service_map[t.ticket_id].subkategori_id if t.ticket_id in service_map else None,
+                    "subkategori_nama": service_map[t.ticket_id].subkategori_nama if t.ticket_id in service_map else None,
                 },
 
                 "asset": {
@@ -1036,7 +1058,7 @@ async def reject_ticket(
 
 
 
-@router.get("/tickets/seksi/verified-bidang")
+@router.get("/tickets/seksi/verified-bidang/pelaporan-online")
 def get_tickets_verified_by_bidang_for_seksi(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user_universal)
@@ -1130,6 +1152,133 @@ def get_tickets_verified_by_bidang_for_seksi(
         "data": result
     }
 
+
+@router.get("/tickets/seksi/verified-bidang/pengajuan-layanan")
+def get_tickets_verified_by_bidang_for_seksi(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user_universal)
+):
+
+    if current_user.get("role_name") != "seksi":
+        raise HTTPException(
+            403,
+            "Akses ditolak: hanya seksi yang dapat mengakses daftar tiket ini"
+        )
+
+    seksi_opd_id = current_user.get("dinas_id")
+    if not seksi_opd_id:
+        raise HTTPException(400, "User tidak memiliki OPD")
+
+    tickets = (
+        db.query(models.Tickets)
+        .filter(
+            models.Tickets.opd_id_tickets == seksi_opd_id,
+            or_(
+                models.Tickets.status == "verified by bidang",
+                models.Tickets.status == "assigned to teknisi",
+                models.Tickets.status == "diproses"
+            ),
+            models.Tickets.request_type == "pengajuan_pelayanan"
+        )
+        .order_by(models.Tickets.created_at.desc())
+        .all()
+    )
+
+    ticket_ids = [t.ticket_id for t in tickets]
+
+    # === ATTACHMENTS ===
+    attachments_all = (
+        db.query(models.TicketAttachment)
+        .filter(models.TicketAttachment.has_id.in_(ticket_ids))
+        .all()
+    )
+
+    attachments_map = {}
+    for a in attachments_all:
+        attachments_map.setdefault(a.has_id, []).append(a)
+
+    # === SERVICE REQUESTS ===
+    service_data_all = (
+        db.query(models.TicketServiceRequests)
+        .filter(models.TicketServiceRequests.ticket_id.in_(ticket_ids))
+        .all()
+    )
+
+    service_map = {s.ticket_id: s for s in service_data_all}
+
+    result = []
+
+    for t in tickets:
+        service_req = service_map.get(t.ticket_id)
+
+        result.append({
+            "ticket_id": str(t.ticket_id),
+            "ticket_code": t.ticket_code,
+            "title": t.title,
+            "status": t.status,
+            "priority": t.priority,
+            "created_at": t.created_at,
+            "ticket_source": t.ticket_source,
+            "status_ticket_pengguna": t.status_ticket_pengguna,
+            "status_ticket_seksi": t.status_ticket_seksi,
+
+            "kategori_risiko_id_asset": t.kategori_risiko_id_asset,
+            "kategori_risiko_nama_asset": t.kategori_risiko_nama_asset,
+            "kategori_risiko_selera_negatif": t.kategori_risiko_selera_negatif,
+            "kategori_risiko_selera_positif": t.kategori_risiko_selera_positif,
+            "area_dampak_id_asset": t.area_dampak_id_asset,
+            "area_dampak_nama_asset": t.area_dampak_nama_asset,
+            "deskripsi_pengendalian_bidang": t.deskripsi_pengendalian_bidang,
+
+            "opd_id_tickets": t.opd_id_tickets,
+            "lokasi_kejadian": t.lokasi_kejadian,
+
+            "creator": {
+                "user_id": str(t.creates_id) if t.creates_id else None,
+                "full_name": t.creates_user.full_name if t.creates_user else None,
+                "profile": t.creates_user.profile_url if t.creates_user else None,
+                "email": t.creates_user.email if t.creates_user else None,
+            },
+
+            "asset": {
+                "asset_id": t.asset_id,
+                "nama_asset": t.nama_asset,
+                "kode_bmd": t.kode_bmd_asset,
+                "nomor_seri": t.nomor_seri_asset,
+                "kategori": t.kategori_asset,
+                "subkategori_id": t.subkategori_id_asset,
+                "subkategori_nama": t.subkategori_nama_asset,
+                "jenis_asset": t.jenis_asset,
+                "lokasi_asset": t.lokasi_asset,
+                "opd_id_asset": t.opd_id_asset,
+            },
+
+            "pengajuan_pelayanan": {
+                "unit_kerja_id": service_req.unit_kerja_id if service_req else None,
+                "unit_kerja_nama": service_req.unit_kerja_nama if service_req else None,
+                "lokasi_id": service_req.lokasi_id if service_req else None,
+                "nama_aset_baru": service_req.nama_aset_baru if service_req else None,
+                "kategori_aset": service_req.kategori_aset if service_req else None,
+                "subkategori_id": service_req.subkategori_id if service_req else None,
+                "subkategori_nama": service_req.subkategori_nama if service_req else None,
+            },
+
+            "files": [
+                {
+                    "attachment_id": str(a.attachment_id),
+                    "file_path": a.file_path,
+                    "uploaded_at": a.uploaded_at
+                }
+                for a in attachments_map.get(t.ticket_id, [])
+            ]
+        })
+
+    return {
+        "total": len(result),
+        "data": result
+    }
+
+
 @router.get("/tickets/seksi/verified-bidang/{ticket_id}")
 def get_ticket_detail_verified_by_bidang_for_seksi(
     ticket_id: str,
@@ -1157,8 +1306,12 @@ def get_ticket_detail_verified_by_bidang_for_seksi(
         .filter(
             models.Tickets.ticket_id == uuid_obj,
             models.Tickets.opd_id_tickets == seksi_opd_id,
-            models.Tickets.status == "verified by bidang",
-            models.Tickets.request_type == "pelaporan_online"
+            or_(
+                models.Tickets.status == "verified by bidang",
+                models.Tickets.status == "assigned to teknisi",
+                models.Tickets.status == "diproses"
+            ),
+            models.Tickets.request_type.in_(["pelaporan_online", "pengajuan_pelayanan"])
         )
         .first()
     )
@@ -1167,6 +1320,12 @@ def get_ticket_detail_verified_by_bidang_for_seksi(
         raise HTTPException(404, "Tiket tidak ditemukan atau tidak memiliki akses")
 
     attachments = ticket.attachments if hasattr(ticket, "attachments") else []
+
+    service_req = (
+        db.query(models.TicketServiceRequests)
+        .filter(models.TicketServiceRequests.ticket_id == uuid_obj)
+        .first()
+    )
 
     return {
         "ticket_id": str(ticket.ticket_id),
@@ -1177,6 +1336,10 @@ def get_ticket_detail_verified_by_bidang_for_seksi(
         "status": ticket.status,
         "created_at": ticket.created_at,
         "updated_at": ticket.updated_at,
+
+        "ticket_source": ticket.ticket_source,
+        "status_ticket_pengguna": ticket.status_ticket_pengguna,
+        "status_ticket_seksi": ticket.status_ticket_seksi,
 
         "lokasi_kejadian": ticket.lokasi_kejadian,
         "opd_id_tickets": ticket.opd_id_tickets,
@@ -1207,6 +1370,19 @@ def get_ticket_detail_verified_by_bidang_for_seksi(
             "jenis_asset": ticket.jenis_asset,
             "lokasi_asset": ticket.lokasi_asset,
             "opd_id_asset": ticket.opd_id_asset,
+        },
+
+        "pengajuan_pelayanan": {
+            "unit_kerja_id": service_req.unit_kerja_id if service_req else None,
+            "unit_kerja_nama": service_req.unit_kerja_nama if service_req else None,
+
+            "lokasi_id": service_req.lokasi_id if service_req else None,
+
+            "nama_aset_baru": service_req.nama_aset_baru if service_req else None,
+            "kategori_aset": service_req.kategori_aset if service_req else None,
+
+            "subkategori_id": service_req.subkategori_id if service_req else None,
+            "subkategori_nama": service_req.subkategori_nama if service_req else None,
         },
 
         "files": [

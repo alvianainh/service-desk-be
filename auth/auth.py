@@ -251,10 +251,88 @@ ASSET_PROFILE_URL = "https://arise-app.my.id/api/account-management"
 
 
 
-async def get_current_user_universal_from_token(token: str):
-    db: Session = next(get_db())  # pastikan ini aman, jangan panggil async DB sync way
+async def get_dinas_id_from_unit_kerja(unit_kerja_id: str, token: str):
+    url = "https://arise-app.my.id/api/unit-kerja"
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url, headers={"Authorization": f"Bearer {token}"}) as res:
+            if res.status != 200:
+                raise HTTPException(res.status, await res.text())
+            data = await res.json()
+            units = data.get("data", [])
+            for unit in units:
+                if str(unit["id"]) == str(unit_kerja_id):
+                    return unit["dinas_id"]
+    raise HTTPException(404, f"Unit kerja ID {unit_kerja_id} tidak ditemukan")
 
-    # validasi token lokal
+
+
+async def sync_user_from_aset(db: Session, aset_user: dict, token: str):
+    email = aset_user["email"]
+    new_user_id_asset = str(aset_user["id"])
+    role_id_aset = aset_user.get("role_id")
+    unit_kerja_id = aset_user.get("unit_kerja_id")
+
+    dinas_id_aset = None
+    if unit_kerja_id:
+        dinas_id_aset = await get_dinas_id_from_unit_kerja(unit_kerja_id, token)
+
+    role = db.query(Roles).filter(Roles.role_id == role_id_aset).first()
+    if not role:
+        raise HTTPException(status_code=400, detail="Role dari API belum terdaftar")
+
+    dinas = None
+    if dinas_id_aset:
+        dinas = db.query(Dinas).filter(Dinas.id == dinas_id_aset).first()
+        if not dinas:
+            raise HTTPException(status_code=400, detail="Dinas dari API belum terdaftar")
+
+    user_by_email = db.query(Users).filter(Users.email == email).first()
+    user_by_aset_id = db.query(Users).filter(Users.user_id_asset == new_user_id_asset).first()
+
+    if user_by_email and user_by_aset_id and user_by_email.id != user_by_aset_id.id:
+        user = user_by_email
+        db.delete(user_by_aset_id)
+        db.commit()
+    elif user_by_email:
+        user = user_by_email
+    elif user_by_aset_id:
+        user = user_by_aset_id
+    else:
+        user = Users(
+            email=email,
+            full_name=aset_user.get("name"),
+            username_asset=aset_user.get("username"),
+            address=aset_user.get("alamat"),
+            user_id_asset=new_user_id_asset,
+            role_id_asset=role_id_aset,
+            opd_id_asset=dinas_id_aset,
+            role_id=role.role_id,
+            opd_id=dinas.id if dinas else None,
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        return user
+
+    # update existing user
+    user.email = email
+    user.full_name = aset_user.get("name")
+    user.username_asset = aset_user.get("username")
+    user.address = aset_user.get("alamat")
+    user.user_id_asset = new_user_id_asset
+    user.role_id_asset = role_id_aset
+    user.opd_id_asset = dinas_id_aset
+    user.role_id = role.role_id
+    user.opd_id = dinas.id if dinas else None
+
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+async def get_current_user_universal_from_token(token: str):
+    db: Session = next(get_db())
+
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         user_id = payload.get("sub")
@@ -275,7 +353,6 @@ async def get_current_user_universal_from_token(token: str):
     except Exception:
         pass
 
-    # validasi token ke SSO (async)
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(
@@ -303,17 +380,16 @@ async def get_current_user_universal_from_token(token: str):
         return None
 
 
-
 async def get_current_user_universal(
     credentials: HTTPAuthorizationCredentials = Depends(security),
     db: Session = Depends(get_db)
 ):
     token = credentials.credentials
 
+    # coba decode JWT lokal dulu
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         user_id = payload.get("sub")
-
         if user_id:
             user = (
                 db.query(Users)
@@ -321,57 +397,51 @@ async def get_current_user_universal(
                 .filter(Users.id == user_id)
                 .first()
             )
-
             if user:
                 dinas = db.query(Dinas).filter(Dinas.id == user.opd_id).first()
-
                 return {
                     "id": str(user.id),
                     "email": user.email,
                     "full_name": user.full_name,
-
                     "role_id": user.role_id,
-                    "dinas_id": user.opd_id,
                     "role_name": user.role.role_name if user.role else None,
+                    "dinas_id": user.opd_id,
                     "dinas_name": dinas.nama if dinas else None,
-
                     "is_sso": False,
-                    "access_token": token 
+                    "access_token": token
                 }
-
     except Exception:
         pass
 
+    # fallback ke ASET SSO
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(
                 "https://arise-app.my.id/api/me",
                 headers={"Authorization": f"Bearer {token}"}
             ) as res:
-
                 if res.status != 200:
                     raise HTTPException(status_code=401, detail="Invalid SSO token")
-
                 data = await res.json()
                 aset_user = data.get("user")
+                if not aset_user:
+                    raise HTTPException(status_code=502, detail="User data not found in Aset API response")
 
-        local_user = sync_user_from_aset(db, aset_user)
+        # FIX: await karena async
+        local_user = await sync_user_from_aset(db, aset_user, token)
         dinas = db.query(Dinas).filter(Dinas.id == local_user.opd_id).first()
 
         return {
             "id": str(local_user.id),
             "email": local_user.email,
             "full_name": local_user.full_name,
-
             "role_id": local_user.role_id,
-            "dinas_id": local_user.opd_id,
             "role_name": local_user.role.role_name if local_user.role else None,
+            "dinas_id": local_user.opd_id,
             "dinas_name": dinas.nama if dinas else None,
-
             "is_sso": True,
             "access_token": token
         }
-
     except Exception:
         raise HTTPException(status_code=401, detail="Token tidak valid untuk kedua sistem")
 
@@ -433,6 +503,7 @@ async def get_current_user(
 ):
     token = credentials.credentials
 
+    # ======= Ambil data user dari ASET API =======
     async with aiohttp.ClientSession() as session:
         async with session.get(
             "https://arise-app.my.id/api/me",
@@ -463,10 +534,13 @@ async def get_current_user(
             if not aset_user:
                 raise HTTPException(status_code=502, detail="User data not found in Aset API response")
 
-    local_user = sync_user_from_aset(db, aset_user)
+    # ======= Sinkronisasi / mapping user ke database lokal =======
+    local_user = await sync_user_from_aset(db, aset_user, token)
 
+    # ======= Ambil nama dinas dari database lokal =======
     dinas = db.query(Dinas).filter(Dinas.id == local_user.opd_id).first()
 
+    # ======= Return user info =======
     return {
         "id": str(local_user.id),
         "email": local_user.email,
@@ -480,86 +554,94 @@ async def get_current_user(
         "token": token
     }
 
-def sync_user_from_aset(db: Session, aset_user: dict):
-    email = aset_user["email"]
-    new_user_id_asset = str(aset_user["id"])
-    role_id_aset = aset_user.get("role_id")
-    dinas_id_aset = aset_user.get("unit_kerja_id")
 
-    role = db.query(Roles).filter(Roles.role_id == role_id_aset).first()
-    if not role:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Role ID {role_id_aset} dari API ASET belum ada di tabel roles"
-        )
 
-    dinas = None
-    if dinas_id_aset:
-        dinas = db.query(Dinas).filter(Dinas.id == dinas_id_aset).first()
-        if not dinas:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Dinas ID {dinas_id_aset} dari API ASET belum ada di tabel dinas"
-            )
+# def sync_user_from_aset(db: Session, aset_user: dict):
+#     email = aset_user["email"]
+#     new_user_id_asset = str(aset_user["id"])
+#     role_id_aset = aset_user.get("role_id")
+#     # dinas_id_aset = aset_user.get("unit_kerja_id")
+#     unit_kerja_id = aset_user.get("unit_kerja_id")
 
-    user_by_email = db.query(Users).filter(Users.email == email).first()
-    user_by_aset_id = db.query(Users).filter(Users.user_id_asset == new_user_id_asset).first()
+#     dinas_id_aset = None
+#     if unit_kerja_id:
+#         dinas_id_aset = await get_dinas_id_from_unit_kerja(unit_kerja_id, token)
 
-    if user_by_email and user_by_aset_id and user_by_email.id != user_by_aset_id.id:
-        user = user_by_email
-        db.delete(user_by_aset_id)
-        db.commit()
 
-    elif user_by_email:
-        user = user_by_email
+#     role = db.query(Roles).filter(Roles.role_id == role_id_aset).first()
+#     if not role:
+#         raise HTTPException(
+#             status_code=400,
+#             detail=f"Role ID {role_id_aset} dari API ASET belum ada di tabel roles"
+#         )
 
-    elif user_by_aset_id:
-        user = user_by_aset_id
+#     dinas = None
+#     if dinas_id_aset:
+#         dinas = db.query(Dinas).filter(Dinas.id == dinas_id_aset).first()
+#         if not dinas:
+#             raise HTTPException(
+#                 status_code=400,
+#                 detail=f"Dinas ID {dinas_id_aset} dari API ASET belum ada di tabel dinas"
+#             )
 
-    else:
-        user = Users(
-            email=email,
-            full_name=aset_user.get("name"),
-            username_asset=aset_user.get("username"),
-            address=aset_user.get("alamat"),
+#     user_by_email = db.query(Users).filter(Users.email == email).first()
+#     user_by_aset_id = db.query(Users).filter(Users.user_id_asset == new_user_id_asset).first()
 
-            user_id_asset=new_user_id_asset,
-            role_id_asset=role_id_aset,
-            opd_id_asset=dinas_id_aset,
+#     if user_by_email and user_by_aset_id and user_by_email.id != user_by_aset_id.id:
+#         user = user_by_email
+#         db.delete(user_by_aset_id)
+#         db.commit()
 
-            role_id=role.role_id,
-            opd_id=dinas.id if dinas else None,
-        )
-        db.add(user)
-        db.commit()
-        db.refresh(user)
-        return user
+#     elif user_by_email:
+#         user = user_by_email
 
-    existing_email = (
-        db.query(Users)
-        .filter(Users.email == email, Users.id != user.id)
-        .first()
-    )
-    if existing_email:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Email {email} sudah digunakan oleh akun lain"
-        )
+#     elif user_by_aset_id:
+#         user = user_by_aset_id
 
-    user.email = email
-    user.user_id_asset = new_user_id_asset
-    user.full_name = aset_user.get("name")
-    user.username_asset = aset_user.get("username")
-    user.address = aset_user.get("alamat")
-    user.role_id_asset = role_id_aset
-    user.opd_id_asset = dinas_id_aset
+#     else:
+#         user = Users(
+#             email=email,
+#             full_name=aset_user.get("name"),
+#             username_asset=aset_user.get("username"),
+#             address=aset_user.get("alamat"),
 
-    user.role_id = role.role_id
-    user.opd_id = dinas.id if dinas else None
+#             user_id_asset=new_user_id_asset,
+#             role_id_asset=role_id_aset,
+#             opd_id_asset=dinas_id_aset,
 
-    db.commit()
-    db.refresh(user)
-    return user
+#             role_id=role.role_id,
+#             opd_id=dinas.id if dinas else None,
+#         )
+#         db.add(user)
+#         db.commit()
+#         db.refresh(user)
+#         return user
+
+#     existing_email = (
+#         db.query(Users)
+#         .filter(Users.email == email, Users.id != user.id)
+#         .first()
+#     )
+#     if existing_email:
+#         raise HTTPException(
+#             status_code=400,
+#             detail=f"Email {email} sudah digunakan oleh akun lain"
+#         )
+
+#     user.email = email
+#     user.user_id_asset = new_user_id_asset
+#     user.full_name = aset_user.get("name")
+#     user.username_asset = aset_user.get("username")
+#     user.address = aset_user.get("alamat")
+#     user.role_id_asset = role_id_aset
+#     user.opd_id_asset = dinas_id_aset
+
+#     user.role_id = role.role_id
+#     user.opd_id = dinas.id if dinas else None
+
+#     db.commit()
+#     db.refresh(user)
+#     return user
 
 
 
