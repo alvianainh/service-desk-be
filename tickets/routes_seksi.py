@@ -353,8 +353,8 @@ def get_dashboard_seksi(
 
 
 
-@router.get("/tickets/seksi")
-def get_tickets_for_seksi(
+@router.get("/tickets/seksi/pelaporan-online")
+def get_tickets_pelaporan_online(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user_universal)
 ):
@@ -373,18 +373,16 @@ def get_tickets_for_seksi(
 
     allowed_status = [
         "Reopen",
-        "Open",           
-        "verified by seksi",   
-        "rejected by bidang"   
+        "Open",
+        "verified by seksi",
+        "rejected by bidang"
     ]
-
-    allowed_request_types = ["pelaporan_online", "pengajuan_pelayanan"]
 
     tickets = (
         db.query(models.Tickets)
         .filter(models.Tickets.opd_id_tickets == seksi_opd_id)
         .filter(models.Tickets.status.in_(allowed_status))
-        .filter(models.Tickets.request_type.in_(allowed_request_types))  
+        .filter(models.Tickets.request_type == "pelaporan_online")
         .order_by(models.Tickets.created_at.desc())
         .all()
     )
@@ -411,7 +409,6 @@ def get_tickets_for_seksi(
                 "description": t.description,
                 "status": t.status,
                 "rejection_reason_bidang": t.rejection_reason_bidang,
-                # "stage": t.ticket_stage,
                 "priority": t.priority,
                 "created_at": t.created_at,
                 "ticket_source": t.ticket_source,
@@ -441,6 +438,7 @@ def get_tickets_for_seksi(
                     "lokasi_asset": t.lokasi_asset,
                     "opd_id_asset": t.opd_id_asset,
                 },
+
                 "files": [
                     {
                         "attachment_id": str(a.attachment_id),
@@ -449,11 +447,110 @@ def get_tickets_for_seksi(
                     }
                     for a in attachments_map.get(t.ticket_id, [])
                 ]
-
             }
             for t in tickets
         ]
     }
+
+@router.get("/tickets/seksi/pengajuan-pelayanan")
+def get_tickets_pengajuan_pelayanan(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user_universal)
+):
+    if current_user.get("role_name") != "seksi":
+        raise HTTPException(
+            status_code=403,
+            detail="Akses ditolak: hanya seksi yang dapat melihat daftar tiket"
+        )
+
+    seksi_opd_id = current_user.get("dinas_id")
+    if not seksi_opd_id:
+        raise HTTPException(
+            status_code=400,
+            detail="User tidak memiliki OPD"
+        )
+
+    allowed_status = [
+        "Reopen",
+        "Open",
+        "verified by seksi",
+        "rejected by bidang"
+    ]
+
+    tickets = (
+        db.query(models.Tickets)
+        .filter(models.Tickets.opd_id_tickets == seksi_opd_id)
+        .filter(models.Tickets.status.in_(allowed_status))
+        .filter(models.Tickets.request_type == "pengajuan_pelayanan")
+        .order_by(models.Tickets.created_at.desc())
+        .all()
+    )
+
+    ticket_ids = [t.ticket_id for t in tickets]
+
+    attachments_all = (
+        db.query(models.TicketAttachment)
+        .filter(models.TicketAttachment.has_id.in_(ticket_ids))
+        .all()
+    )
+
+    attachments_map = {}
+    for a in attachments_all:
+        attachments_map.setdefault(a.has_id, []).append(a)
+
+    return {
+        "total": len(tickets),
+        "data": [
+            {
+                "ticket_id": str(t.ticket_id),
+                "ticket_code": t.ticket_code,
+                "title": t.title,
+                "description": t.description,
+                "status": t.status,
+                "rejection_reason_bidang": t.rejection_reason_bidang,
+                "priority": t.priority,
+                "created_at": t.created_at,
+                "ticket_source": t.ticket_source,
+                "status_ticket_pengguna": t.status_ticket_pengguna,
+                "status_ticket_seksi": t.status_ticket_seksi,
+                "request_type": t.request_type,
+
+                "opd_id_tickets": t.opd_id_tickets,
+                "lokasi_kejadian": t.lokasi_kejadian,
+
+                "creator": {
+                    "user_id": str(t.creates_id) if t.creates_id else None,
+                    "full_name": t.creates_user.full_name if t.creates_user else None,
+                    "profile": t.creates_user.profile_url if t.creates_user else None,
+                    "email": t.creates_user.email if t.creates_user else None,
+                },
+
+                "asset": {
+                    "asset_id": t.asset_id,
+                    "nama_asset": t.nama_asset,
+                    "kode_bmd": t.kode_bmd_asset,
+                    "nomor_seri": t.nomor_seri_asset,
+                    "kategori": t.kategori_asset,
+                    "subkategori_id": t.subkategori_id_asset,
+                    "subkategori_nama": t.subkategori_nama_asset,
+                    "jenis_asset": t.jenis_asset,
+                    "lokasi_asset": t.lokasi_asset,
+                    "opd_id_asset": t.opd_id_asset,
+                },
+
+                "files": [
+                    {
+                        "attachment_id": str(a.attachment_id),
+                        "file_path": a.file_path,
+                        "uploaded_at": a.uploaded_at
+                    }
+                    for a in attachments_map.get(t.ticket_id, [])
+                ]
+            }
+            for t in tickets
+        ]
+    }
+
 
 
 
