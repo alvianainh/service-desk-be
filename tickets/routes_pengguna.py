@@ -599,6 +599,7 @@ def get_ticket_detail_for_pengguna(
         "status_ticket_pengguna": ticket.status_ticket_pengguna,
         "status_ticket_seksi": ticket.status_ticket_seksi,
         "status_ticket_teknisi": ticket.status_ticket_teknisi,
+        "rejection_reason_seksi": ticket.rejection_reason_seksi,
 
         "creator": {
             "user_id": str(ticket.creates_id),
