@@ -294,6 +294,68 @@ async def update_ticket_status(db, ticket, new_status, updated_by):
 
 
 # TEKNISI
+@router.get("/dashboard/teknisi/summary")
+def dashboard_teknisi_summary(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user_universal)
+):
+    if current_user.get("role_name") != "teknisi":
+        raise HTTPException(
+            status_code=403,
+            detail="Akses ditolak: hanya teknisi yang dapat melihat dashboard."
+        )
+
+    teknisi_user_id = current_user.get("id")
+    teknisi_opd_id = current_user.get("dinas_id")
+
+    if not teknisi_opd_id:
+        raise HTTPException(
+            status_code=400,
+            detail="User tidak memiliki OPD"
+        )
+
+    # Ambil semua tiket teknisi
+    tickets = db.query(models.Tickets) \
+        .filter(models.Tickets.opd_id_tickets == teknisi_opd_id) \
+        .filter(models.Tickets.assigned_teknisi_id == teknisi_user_id) \
+        .all()
+
+    total_tickets = len(tickets)
+    in_progress = sum(1 for t in tickets if t.status in ["assigned to teknisi", "diproses"])
+    reopen = sum(1 for t in tickets if t.status == "reopen")
+
+    # Hitung tiket mendekati deadline
+    approaching_deadline = 0
+    now = datetime.now()
+
+    for t in tickets:
+        if not t.pengerjaan_awal or not t.pengerjaan_akhir:
+            continue
+
+        # Lewati tiket yang sudah selesai
+        if t.status == "selesai":
+            continue
+
+        try:
+            awal = t.pengerjaan_awal
+            akhir = t.pengerjaan_akhir
+            total_durasi = akhir - awal
+            threshold_time = awal + total_durasi * 0.75
+            if now >= threshold_time:
+                approaching_deadline += 1
+        except Exception:
+            continue
+
+    return {
+        "teknisi_id": teknisi_user_id,
+        "opd_id": teknisi_opd_id,
+        "total_tickets": total_tickets,
+        "in_progress": in_progress,
+        "reopen": reopen,
+        "deadline": approaching_deadline
+    }
+
+
 @router.get("/tickets/teknisi")
 def get_tickets_for_teknisi(
     db: Session = Depends(get_db),
