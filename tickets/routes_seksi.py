@@ -1756,8 +1756,214 @@ def get_ticket_detail_assigned_to_teknisi_for_seksi(
         ]
     }
 
+@router.get("/seksi/ratings/pengajuan-pelayanan")
+def get_ratings_pelaporan_online(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user_universal)
+):
+
+    if current_user.get("role_name") != "seksi":
+        raise HTTPException(
+            status_code=403,
+            detail="Akses ditolak: hanya seksi yang dapat melihat data rating."
+        )
+
+    seksi_id = current_user.get("id")
+    opd_id_user = current_user.get("dinas_id")
+
+    tickets = (
+        db.query(models.Tickets)
+        .filter(
+            models.Tickets.verified_seksi_id == seksi_id,
+            models.Tickets.opd_id_tickets == opd_id_user,
+            models.Tickets.request_type == "pengajuan_pelayanan"
+        )
+        .order_by(models.Tickets.created_at.desc())
+        .all()
+    )
+
+    results = []
+
+    for t in tickets:
+        rating = (
+            db.query(models.TicketRatings)
+            .filter(models.TicketRatings.ticket_id == t.ticket_id)
+            .first()
+        )
+
+        if not rating:
+            continue
+
+        attachments = t.attachments if hasattr(t, "attachments") else []
+
+        results.append({
+            "ticket_id": str(t.ticket_id),
+            "ticket_code": t.ticket_code,
+            "title": t.title,
+            "status": t.status,
+            "verified_seksi_id": t.verified_seksi_id,
+            "opd_id": t.opd_id_tickets,
+
+            "rating": rating.rating,
+            "comment": rating.comment,
+            "rated_at": rating.created_at,
+
+            "kategori_risiko_id_asset": t.kategori_risiko_id_asset,
+            "kategori_risiko_nama_asset": t.kategori_risiko_nama_asset,
+            "kategori_risiko_selera_negatif": t.kategori_risiko_selera_negatif,
+            "kategori_risiko_selera_positif": t.kategori_risiko_selera_positif,
+            "area_dampak_id_asset": t.area_dampak_id_asset,
+            "area_dampak_nama_asset": t.area_dampak_nama_asset,
+            "deskripsi_pengendalian_bidang": t.deskripsi_pengendalian_bidang,
+
+            "description": t.description,
+            "priority": t.priority,
+            "lokasi_kejadian": t.lokasi_kejadian,
+            "expected_resolution": t.expected_resolution,
+            "pengerjaan_awal": t.pengerjaan_awal,
+            "pengerjaan_akhir": t.pengerjaan_akhir,
+            "pengerjaan_awal_teknisi": t.pengerjaan_awal_teknisi,
+            "pengerjaan_akhir_teknisi": t.pengerjaan_akhir_teknisi,
+
+            "creator": {
+                "user_id": str(t.creates_id) if t.creates_id else None,
+                "full_name": t.creates_user.full_name if t.creates_user else None,
+                "profile": t.creates_user.profile_url if t.creates_user else None,
+                "email": t.creates_user.email if t.creates_user else None,
+            },
+
+            "asset": {
+                "asset_id": t.asset_id,
+                "nama_asset": t.nama_asset,
+                "kode_bmd": t.kode_bmd_asset,
+                "nomor_seri": t.nomor_seri_asset,
+                "kategori": t.kategori_asset,
+                "subkategori_id": t.subkategori_id_asset,
+                "subkategori_nama": t.subkategori_nama_asset,
+                "jenis_asset": t.jenis_asset,
+                "lokasi_asset": t.lokasi_asset,
+                "opd_id_asset": t.opd_id_asset,
+            },
+
+            "files": [
+                {
+                    "attachment_id": str(a.attachment_id),
+                    "file_path": a.file_path,
+                    "uploaded_at": a.uploaded_at
+                }
+                for a in attachments
+            ]
+        })
+
+    return {
+        "total": len(results),
+        "data": results
+    }
 
 
+@router.get("/seksi/ratings/pelaporan-online")
+def get_ratings_pelaporan_online(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user_universal)
+):
+
+    if current_user.get("role_name") != "seksi":
+        raise HTTPException(
+            status_code=403,
+            detail="Akses ditolak: hanya seksi yang dapat melihat data rating."
+        )
+
+    seksi_id = current_user.get("id")
+    opd_id_user = current_user.get("dinas_id")
+
+    tickets = (
+        db.query(models.Tickets)
+        .filter(
+            models.Tickets.verified_seksi_id == seksi_id,
+            models.Tickets.opd_id_tickets == opd_id_user,
+            models.Tickets.request_type == "pelaporan_online"
+        )
+        .order_by(models.Tickets.created_at.desc())
+        .all()
+    )
+
+    results = []
+
+    for t in tickets:
+        rating = (
+            db.query(models.TicketRatings)
+            .filter(models.TicketRatings.ticket_id == t.ticket_id)
+            .first()
+        )
+
+        if not rating:
+            continue
+
+        attachments = t.attachments if hasattr(t, "attachments") else []
+
+        results.append({
+            "ticket_id": str(t.ticket_id),
+            "ticket_code": t.ticket_code,
+            "title": t.title,
+            "status": t.status,
+            "verified_seksi_id": t.verified_seksi_id,
+            "opd_id": t.opd_id_tickets,
+
+            "rating": rating.rating,
+            "comment": rating.comment,
+            "rated_at": rating.created_at,
+
+            "kategori_risiko_id_asset": t.kategori_risiko_id_asset,
+            "kategori_risiko_nama_asset": t.kategori_risiko_nama_asset,
+            "kategori_risiko_selera_negatif": t.kategori_risiko_selera_negatif,
+            "kategori_risiko_selera_positif": t.kategori_risiko_selera_positif,
+            "area_dampak_id_asset": t.area_dampak_id_asset,
+            "area_dampak_nama_asset": t.area_dampak_nama_asset,
+            "deskripsi_pengendalian_bidang": t.deskripsi_pengendalian_bidang,
+
+            "description": t.description,
+            "priority": t.priority,
+            "lokasi_kejadian": t.lokasi_kejadian,
+            "expected_resolution": t.expected_resolution,
+            "pengerjaan_awal": t.pengerjaan_awal,
+            "pengerjaan_akhir": t.pengerjaan_akhir,
+            "pengerjaan_awal_teknisi": t.pengerjaan_awal_teknisi,
+            "pengerjaan_akhir_teknisi": t.pengerjaan_akhir_teknisi,
+
+            "creator": {
+                "user_id": str(t.creates_id) if t.creates_id else None,
+                "full_name": t.creates_user.full_name if t.creates_user else None,
+                "profile": t.creates_user.profile_url if t.creates_user else None,
+                "email": t.creates_user.email if t.creates_user else None,
+            },
+
+            "asset": {
+                "asset_id": t.asset_id,
+                "nama_asset": t.nama_asset,
+                "kode_bmd": t.kode_bmd_asset,
+                "nomor_seri": t.nomor_seri_asset,
+                "kategori": t.kategori_asset,
+                "subkategori_id": t.subkategori_id_asset,
+                "subkategori_nama": t.subkategori_nama_asset,
+                "jenis_asset": t.jenis_asset,
+                "lokasi_asset": t.lokasi_asset,
+                "opd_id_asset": t.opd_id_asset,
+            },
+
+            "files": [
+                {
+                    "attachment_id": str(a.attachment_id),
+                    "file_path": a.file_path,
+                    "uploaded_at": a.uploaded_at
+                }
+                for a in attachments
+            ]
+        })
+
+    return {
+        "total": len(results),
+        "data": results
+    }
 
 
 @router.get("/seksi/ratings")

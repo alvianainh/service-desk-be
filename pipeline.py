@@ -463,8 +463,6 @@ async def get_sso_me(current_user: dict = Depends(get_current_user)):
     }
 
 
-
-
 @router.get("/me/masyarakat", summary="Get current logged-in user (Masyarakat)")
 def read_current_user(current_user: dict = Depends(get_current_user_masyarakat)):
     user = current_user.copy()

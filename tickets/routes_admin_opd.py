@@ -6,7 +6,7 @@ from . import models, schemas
 from auth.database import get_db
 from auth.auth import get_current_user, get_user_by_email, get_current_user_masyarakat, get_current_user_universal
 from tickets import models, schemas
-from tickets.models import Tickets, TicketAttachment, TicketCategories, TicketUpdates, TeknisiTags, TeknisiLevels, TicketRatings, WarRoom, WarRoomOPD, WarRoomSeksi
+from tickets.models import Tickets, TicketAttachment, TicketCategories, TicketUpdates, TeknisiTags, TeknisiLevels, TicketRatings, WarRoom, WarRoomOPD, WarRoomSeksi, TicketServiceRequests
 from tickets.schemas import TicketCreateSchema, TicketResponseSchema, TicketCategorySchema, TicketForSeksiSchema, TicketTrackResponse, UpdatePriority, ManualPriority, RejectReasonSeksi, RejectReasonBidang, AssignTeknisiSchema
 import uuid
 from auth.models import Opd, Dinas, Roles, Users
@@ -455,7 +455,6 @@ def get_ratings_pelaporan_online(
         )
     )
 
-    # Filter ticket source
     if source in ["Masyarakat", "Pegawai"]:
         query = query.filter(models.Tickets.ticket_source == source)
 
@@ -639,4 +638,93 @@ def get_statistik_priority_pelaporan_online(
     return {
         "total_pelaporan_online": len(tickets),
         "priority_stats": list(priority_stats.values())
+    }
+
+@router.get("/admin-opd/statistik/pengajuan-pelayanan")
+def get_statistik_pengajuan_pelayanan(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user_universal)
+):
+
+    # Hanya admin OPD
+    if current_user.get("role_name") != "admin dinas":
+        raise HTTPException(
+            status_code=403,
+            detail="Akses ditolak: hanya admin OPD yang dapat melihat data pengajuan pelayanan."
+        )
+
+    opd_id_user = current_user.get("dinas_id")
+
+    # Ambil semua tiket pengajuan pelayanan untuk OPD tersebut
+    tickets = (
+        db.query(models.Tickets)
+        .join(models.TicketServiceRequests, models.TicketServiceRequests.ticket_id == models.Tickets.ticket_id)
+        .filter(
+            models.Tickets.opd_id_tickets == opd_id_user,
+            models.Tickets.request_type == "pengajuan_pelayanan"
+        )
+        .order_by(models.Tickets.created_at.desc())
+        .all()
+    )
+
+    results = []
+
+    for t in tickets:
+
+        # Karena relationship masih one-to-many (list)
+        sr = t.service_request[0] if t.service_request else None
+
+        attachments = t.attachments if hasattr(t, "attachments") else []
+
+        results.append({
+            "ticket_id": str(t.ticket_id),
+            "ticket_code": t.ticket_code,
+            "title": t.title,
+            "status": t.status,
+            "priority": t.priority,
+            "created_at": t.created_at,
+            "ticket_source": t.ticket_source,
+            "request_type": t.request_type,
+
+            # Detail pengerjaan
+            "pengerjaan_awal": t.pengerjaan_awal,
+            "pengerjaan_akhir": t.pengerjaan_akhir,
+            "pengerjaan_awal_teknisi": t.pengerjaan_awal_teknisi,
+            "pengerjaan_akhir_teknisi": t.pengerjaan_akhir_teknisi,
+
+            # Detail user
+            "user": {
+                "user_id": str(t.creates_id) if t.creates_id else None,
+                "full_name": t.creates_user.full_name if t.creates_user else None,
+                "email": t.creates_user.email if t.creates_user else None,
+                "profile": t.creates_user.profile_url if t.creates_user else None,
+            },
+
+            # Detail pengajuan pelayanan (form)
+            "pengajuan_pelayanan": {
+                "unit_kerja_id": sr.unit_kerja_id if sr else None,
+                "unit_kerja_nama": sr.unit_kerja_nama if sr else None,
+                "lokasi_id": sr.lokasi_id if sr else None,
+                "nama_aset_baru": sr.nama_aset_baru if sr else None,
+                "kategori_aset": sr.kategori_aset if sr else None,
+                "subkategori_id": sr.subkategori_id if sr else None,
+                "subkategori_nama": sr.subkategori_nama if sr else None,
+                "id_asset": sr.id_asset if sr else None,
+                "extra_metadata": sr.extra_metadata if sr else None,
+                "created_at": sr.created_at if sr else None
+            },
+
+            "files": [
+                {
+                    "attachment_id": str(a.attachment_id),
+                    "file_path": a.file_path,
+                    "uploaded_at": a.uploaded_at
+                }
+                for a in attachments
+            ]
+        })
+
+    return {
+        "total": len(results),
+        "data": results
     }
