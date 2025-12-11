@@ -1121,6 +1121,7 @@ def get_tickets_verified_by_bidang_for_seksi(
             "area_dampak_id_asset": t.area_dampak_id_asset,
             "area_dampak_nama_asset": t.area_dampak_nama_asset,
             "deskripsi_pengendalian_bidang": t.deskripsi_pengendalian_bidang,
+            "expected_resolution": t.expected_resolution,
 
 
             "opd_id_tickets": t.opd_id_tickets,
@@ -1238,6 +1239,8 @@ def get_tickets_verified_by_bidang_for_seksi(
             "area_dampak_id_asset": t.area_dampak_id_asset,
             "area_dampak_nama_asset": t.area_dampak_nama_asset,
             "deskripsi_pengendalian_bidang": t.deskripsi_pengendalian_bidang,
+            "expected_resolution": t.expected_resolution,
+
 
             "opd_id_tickets": t.opd_id_tickets,
             "lokasi_kejadian": t.lokasi_kejadian,
@@ -1360,6 +1363,8 @@ def get_ticket_detail_verified_by_bidang_for_seksi(
         "area_dampak_id_asset": ticket.area_dampak_id_asset,
         "area_dampak_nama_asset": ticket.area_dampak_nama_asset,
         "deskripsi_pengendalian_bidang": ticket.deskripsi_pengendalian_bidang,
+        "expected_resolution": ticket.expected_resolution,
+
 
         "creator": {
             "user_id": str(ticket.creates_id) if ticket.creates_id else None,
