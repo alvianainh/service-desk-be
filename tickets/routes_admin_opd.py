@@ -991,6 +991,8 @@ def get_statistik_pengajuan_pelayanan(
         "total": len(results),
         "data": results
     }
+
+    
 @router.get("/admin-opd/statistik/pengajuan-pelayanan/rekap")
 def get_rekap_pengajuan_pelayanan_bulanan(
     year: Optional[int] = Query(None),
