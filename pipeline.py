@@ -357,11 +357,38 @@ async def refresh_token(refresh_token: str, db: Session = Depends(get_db)):
 #     }
 
 
+# @router.get("/me")
+# async def get_sso_me(current_user: dict = Depends(get_current_user)):
+
+#     token = current_user["token"]  
+
+#     async with aiohttp.ClientSession() as session:
+#         async with session.get(
+#             ARISE_ME_URL,
+#             headers={
+#                 "accept": "application/json",
+#                 "Authorization": f"Bearer {token}",
+#             }
+#         ) as response:
+
+#             text = await response.text()
+
+#             if response.status != 200:
+#                 raise HTTPException(
+#                     status_code=response.status,
+#                     detail=f"Error from Arise: {text}",
+#                 )
+
+#             data = await response.json()
+#             return data
+
+
 @router.get("/me")
 async def get_sso_me(current_user: dict = Depends(get_current_user)):
 
-    token = current_user["token"]  
+    token = current_user["token"]
 
+    # --- STEP 1: GET USER SSO /me ---
     async with aiohttp.ClientSession() as session:
         async with session.get(
             ARISE_ME_URL,
@@ -369,18 +396,73 @@ async def get_sso_me(current_user: dict = Depends(get_current_user)):
                 "accept": "application/json",
                 "Authorization": f"Bearer {token}",
             }
-        ) as response:
+        ) as res_me:
 
-            text = await response.text()
-
-            if response.status != 200:
+            text_me = await res_me.text()
+            if res_me.status != 200:
                 raise HTTPException(
-                    status_code=response.status,
-                    detail=f"Error from Arise: {text}",
+                    status_code=res_me.status,
+                    detail=f"Error from Arise: {text_me}"
                 )
 
-            data = await response.json()
-            return data
+            user_data = await res_me.json()
+
+    # user_data["user"]["unit_kerja_id"] bisa "1" (string)
+    unit_kerja_id_raw = user_data.get("user", {}).get("unit_kerja_id")
+
+    if not unit_kerja_id_raw:
+        return {
+            "user": user_data,
+            "opd": None,
+            "message": "User tidak memiliki unit_kerja_id"
+        }
+
+    try:
+        unit_kerja_id = int(unit_kerja_id_raw)   # <-- FIX DI SINI
+    except:
+        return {
+            "user": user_data,
+            "opd": None,
+            "message": "unit_kerja_id tidak valid"
+        }
+
+    # --- STEP 2: GET LIST UNIT KERJA ---
+    async with aiohttp.ClientSession() as session:
+        async with session.get(
+            "https://arise-app.my.id/api/unit-kerja",
+            headers={"accept": "application/json"}
+        ) as res_uk:
+
+            text_uk = await res_uk.text()
+            if res_uk.status != 200:
+                raise HTTPException(
+                    status_code=res_uk.status,
+                    detail=f"Error fetching unit kerja: {text_uk}"
+                )
+
+            unit_kerja_data = await res_uk.json()
+
+    unit_list = unit_kerja_data.get("data", [])
+
+    # --- STEP 3: FIND MAPPING ---
+    target_unit = next((u for u in unit_list if int(u["id"]) == unit_kerja_id), None)
+
+    if not target_unit:
+        opd_info = None
+    else:
+        opd_info = {
+            "unit_kerja_id": target_unit["id"],
+            "unit_kerja_nama": target_unit["nama"],
+            "opd_id": int(target_unit["dinas_id"]) if target_unit.get("dinas_id") else None,
+            "opd_nama": target_unit["dinas"]["nama"] if target_unit.get("dinas") else None
+        }
+
+    return {
+        "user": user_data,
+        "opd": opd_info
+    }
+
+
 
 
 @router.get("/me/masyarakat", summary="Get current logged-in user (Masyarakat)")

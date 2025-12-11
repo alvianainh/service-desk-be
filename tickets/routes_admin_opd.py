@@ -528,3 +528,115 @@ def get_ratings_pelaporan_online(
         "filter_source": source if source else "all",
         "data": results
     }
+
+
+@router.get("/admin-opd/statistik/pelaporan-online/kategori")
+def get_statistik_kategori_pelaporan_online(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user_universal)
+):
+
+    # Hanya admin opd
+    if current_user.get("role_name") != "admin dinas":
+        raise HTTPException(
+            status_code=403,
+            detail="Akses ditolak: hanya admin OPD."
+        )
+
+    opd_id_user = current_user.get("dinas_id")
+
+    # Ambil semua tiket pelaporan online (tanpa filter source dulu)
+    tickets = (
+        db.query(models.Tickets)
+        .filter(
+            models.Tickets.opd_id_tickets == opd_id_user,
+            models.Tickets.request_type == "pelaporan_online"
+        )
+        .all()
+    )
+
+    total_all = len(tickets)
+    total_masyarakat = 0
+    total_pegawai = 0
+
+    # Statistik kategori (khusus pegawai)
+    kategori_stats = {}
+
+    for t in tickets:
+
+        # Hitung masyarakat vs pegawai
+        if t.ticket_source == "Masyarakat":
+            total_masyarakat += 1
+        elif t.ticket_source == "Pegawai":
+            total_pegawai += 1
+
+            # Pegawai → hitung kategori asset
+            if t.subkategori_id_asset:
+                kategori_name = t.subkategori_nama_asset
+
+                if kategori_name not in kategori_stats:
+                    kategori_stats[kategori_name] = {
+                        "subkategori": kategori_name,
+                        "count": 0,
+                        "tickets": []
+                    }
+
+                kategori_stats[kategori_name]["count"] += 1
+                kategori_stats[kategori_name]["tickets"].append(str(t.ticket_id))
+
+    return {
+        "total_pelaporan_online": total_all,
+        "total_masyarakat": total_masyarakat,
+        "total_pegawai": total_pegawai,
+        "kategori_asset_stats": list(kategori_stats.values())
+    }
+
+
+@router.get("/admin-opd/statistik/pelaporan-online/priority")
+def get_statistik_priority_pelaporan_online(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user_universal)
+):
+
+    # Hanya admin opd
+    if current_user.get("role_name") != "admin dinas":
+        raise HTTPException(
+            status_code=403,
+            detail="Akses ditolak: hanya admin OPD."
+        )
+
+    opd_id_user = current_user.get("dinas_id")
+
+    # Ambil semua tiket pelaporan online
+    tickets = (
+        db.query(models.Tickets)
+        .filter(
+            models.Tickets.opd_id_tickets == opd_id_user,
+            models.Tickets.request_type == "pelaporan_online"
+        )
+        .all()
+    )
+
+    # Priority groups
+    priorities = ["Low", "Medium", "High", "Critical"]
+
+    priority_stats = {
+        p: {
+            "priority": p,
+            "count": 0,
+            "tickets": []
+        }
+        for p in priorities
+    }
+
+    for t in tickets:
+        p = t.priority if t.priority else None
+
+        if p in priority_stats:
+            priority_stats[p]["count"] += 1
+            priority_stats[p]["tickets"].append(str(t.ticket_id))
+
+    return {
+        "total_pelaporan_online": len(tickets),
+        "priority_stats": list(priority_stats.values())
+    }
