@@ -432,7 +432,7 @@ def get_ticket_detail_for_teknisi(
             detail="Akses ditolak: Tiket tidak diassign ke teknisi ini."
         )
 
-    allowed_status = ["assigned to teknisi"]
+    allowed_status = ["assigned to teknisi", "diproses"]
     if ticket.status not in allowed_status:
         raise HTTPException(
             status_code=403,
