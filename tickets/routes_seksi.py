@@ -1359,7 +1359,7 @@ def get_ticket_detail_verified_by_bidang_for_seksi(
 
         "lokasi_kejadian": ticket.lokasi_kejadian,
         "opd_id_tickets": ticket.opd_id_tickets,
-        "lokasi_penempatan": t.lokasi_penempatan,
+        "lokasi_penempatan": ticket.lokasi_penempatan,
 
         "kategori_risiko_id_asset": ticket.kategori_risiko_id_asset,
         "kategori_risiko_nama_asset": ticket.kategori_risiko_nama_asset,
