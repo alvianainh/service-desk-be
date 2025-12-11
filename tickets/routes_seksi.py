@@ -1716,6 +1716,7 @@ def get_ticket_detail_assigned_to_teknisi_for_seksi(
 
         "lokasi_kejadian": ticket.lokasi_kejadian,
         "opd_id_tickets": ticket.opd_id_tickets,
+        "request_type": ticket.request_type,
 
         "kategori_risiko_id_asset": ticket.kategori_risiko_id_asset,
         "kategori_risiko_nama_asset": ticket.kategori_risiko_nama_asset,
