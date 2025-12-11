@@ -850,13 +850,13 @@ def get_rating_detail_for_teknisi(
         "pengerjaan_awal_teknisi": ticket.pengerjaan_awal_teknisi,
         "pengerjaan_akhir_teknisi": ticket.pengerjaan_akhir_teknisi,
 
-        "kategori_risiko_id_asset": t.kategori_risiko_id_asset,
-        "kategori_risiko_nama_asset": t.kategori_risiko_nama_asset,
-        "kategori_risiko_selera_negatif": t.kategori_risiko_selera_negatif,
-        "kategori_risiko_selera_positif": t.kategori_risiko_selera_positif,
-        "area_dampak_id_asset": t.area_dampak_id_asset,
-        "area_dampak_nama_asset": t.area_dampak_nama_asset,
-        "deskripsi_pengendalian_bidang": t.deskripsi_pengendalian_bidang,
+        "kategori_risiko_id_asset": ticket.kategori_risiko_id_asset,
+        "kategori_risiko_nama_asset": ticket.kategori_risiko_nama_asset,
+        "kategori_risiko_selera_negatif": ticket.kategori_risiko_selera_negatif,
+        "kategori_risiko_selera_positif": ticket.kategori_risiko_selera_positif,
+        "area_dampak_id_asset": ticket.area_dampak_id_asset,
+        "area_dampak_nama_asset": ticket.area_dampak_nama_asset,
+        "deskripsi_pengendalian_bidang": ticket.deskripsi_pengendalian_bidang,
 
         "creator": {
             "user_id": str(ticket.creates_id) if ticket.creates_id else None,
