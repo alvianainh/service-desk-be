@@ -2061,6 +2061,232 @@ def get_finished_tickets_for_seksi(
             "title": t.title,
             "description": t.description,
             "status": t.status,
+            "request_type": t.request_type,
+
+            "intensitas_laporan": intensitas_dict.get(t.asset_id, 0),
+
+            "asset": {
+                "asset_id": t.asset_id,
+                "nama_asset": t.nama_asset,
+                "kode_bmd": t.kode_bmd_asset,
+                "nomor_seri": t.nomor_seri_asset,
+                "kategori": t.kategori_asset,
+                "subkategori_nama": t.subkategori_nama_asset,
+                "jenis_asset": t.jenis_asset,
+                "lokasi_asset": t.lokasi_asset,
+            }
+        })
+
+    # combined = masyarakat_result + aset_result
+
+    # combined_sorted = sorted(combined, key=lambda x: x["latest_report_date"], reverse=True)
+
+    return {
+        "total_tickets": len(aset_result),
+        "data": aset_result
+    }
+
+
+@router.get("/tickets/seksi/finished-pelaporan-online")
+def get_finished_tickets_for_seksi(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user_universal)
+):
+    if current_user.get("role_name") != "seksi":
+        raise HTTPException(
+            status_code=403,
+            detail="Akses ditolak: hanya seksi OPD yang dapat melihat daftar tiket selesai."
+        )
+
+    seksi_opd_id = current_user.get("dinas_id")
+
+    # masyarakat_tickets = (
+    #     db.query(models.Tickets)
+    #     .filter(
+    #         models.Tickets.status == "selesai",
+    #         models.Tickets.opd_id_tickets == seksi_opd_id,
+    #         models.Tickets.asset_id.is_(None)
+    #     )
+    #     .order_by(models.Tickets.created_at.desc())
+    #     .all()
+    # )
+
+    # masyarakat_result = [
+    #     {
+    #         "ticket_id": t.ticket_id,
+    #         "ticket_code": t.ticket_code,
+    #         "title": t.title,
+    #         "description": t.description,
+    #         "status": t.status,
+    #         "latest_report_date": t.created_at,
+    #         "asset": None,
+    #         "intensitas_laporan": None
+    #     }
+    #     for t in masyarakat_tickets
+    # ]
+
+    subquery = (
+        db.query(
+            models.Tickets.asset_id,
+            func.max(models.Tickets.created_at).label("latest_date")
+        )
+        .filter(
+            models.Tickets.opd_id_tickets == seksi_opd_id,
+            models.Tickets.status == "selesai",
+            models.Tickets.request_type == "pelaporan_online",
+            models.Tickets.asset_id.isnot(None)
+        )
+        .group_by(models.Tickets.asset_id)
+        .subquery()
+    )
+
+    latest_tickets = (
+        db.query(models.Tickets)
+        .join(
+            subquery,
+            (models.Tickets.asset_id == subquery.c.asset_id) &
+            (models.Tickets.created_at == subquery.c.latest_date)
+        )
+        .order_by(models.Tickets.created_at.desc())
+        .all()
+    )
+
+    asset_ids = {t.asset_id for t in latest_tickets}
+
+    intensitas_map = (
+        db.query(models.Tickets.asset_id, func.count(models.Tickets.ticket_id))
+        .filter(
+            models.Tickets.asset_id.in_(asset_ids),
+            models.Tickets.status == "selesai"
+        )
+        .group_by(models.Tickets.asset_id)
+        .all()
+    )
+    intensitas_dict = {asset_id: count for asset_id, count in intensitas_map}
+
+    aset_result = []
+    for t in latest_tickets:
+        aset_result.append({
+            "ticket_id": t.ticket_id,
+            "ticket_code": t.ticket_code,
+            "latest_report_date": t.created_at,
+            "title": t.title,
+            "description": t.description,
+            "status": t.status,
+            "request_type": t.request_type,
+
+            "intensitas_laporan": intensitas_dict.get(t.asset_id, 0),
+
+            "asset": {
+                "asset_id": t.asset_id,
+                "nama_asset": t.nama_asset,
+                "kode_bmd": t.kode_bmd_asset,
+                "nomor_seri": t.nomor_seri_asset,
+                "kategori": t.kategori_asset,
+                "subkategori_nama": t.subkategori_nama_asset,
+                "jenis_asset": t.jenis_asset,
+                "lokasi_asset": t.lokasi_asset,
+            }
+        })
+
+    # combined = masyarakat_result + aset_result
+
+    # combined_sorted = sorted(combined, key=lambda x: x["latest_report_date"], reverse=True)
+
+    return {
+        "total_tickets": len(aset_result),
+        "data": aset_result
+    }
+
+
+
+@router.get("/tickets/seksi/finished-pengajuan-layanan")
+def get_finished_tickets_for_seksi(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user_universal)
+):
+    if current_user.get("role_name") != "seksi":
+        raise HTTPException(
+            status_code=403,
+            detail="Akses ditolak: hanya seksi OPD yang dapat melihat daftar tiket selesai."
+        )
+
+    seksi_opd_id = current_user.get("dinas_id")
+
+    # masyarakat_tickets = (
+    #     db.query(models.Tickets)
+    #     .filter(
+    #         models.Tickets.status == "selesai",
+    #         models.Tickets.opd_id_tickets == seksi_opd_id,
+    #         models.Tickets.asset_id.is_(None)
+    #     )
+    #     .order_by(models.Tickets.created_at.desc())
+    #     .all()
+    # )
+
+    # masyarakat_result = [
+    #     {
+    #         "ticket_id": t.ticket_id,
+    #         "ticket_code": t.ticket_code,
+    #         "title": t.title,
+    #         "description": t.description,
+    #         "status": t.status,
+    #         "latest_report_date": t.created_at,
+    #         "asset": None,
+    #         "intensitas_laporan": None
+    #     }
+    #     for t in masyarakat_tickets
+    # ]
+
+    subquery = (
+        db.query(
+            models.Tickets.asset_id,
+            func.max(models.Tickets.created_at).label("latest_date")
+        )
+        .filter(
+            models.Tickets.opd_id_tickets == seksi_opd_id,
+            models.Tickets.status == "selesai",
+            models.Tickets.request_type == "pengajuan_layanan",
+            models.Tickets.asset_id.isnot(None)
+        )
+        .group_by(models.Tickets.asset_id)
+        .subquery()
+    )
+
+    latest_tickets = (
+        db.query(models.Tickets)
+        .join(
+            subquery,
+            (models.Tickets.asset_id == subquery.c.asset_id) &
+            (models.Tickets.created_at == subquery.c.latest_date)
+        )
+        .order_by(models.Tickets.created_at.desc())
+        .all()
+    )
+
+    asset_ids = {t.asset_id for t in latest_tickets}
+
+    intensitas_map = (
+        db.query(models.Tickets.asset_id, func.count(models.Tickets.ticket_id))
+        .filter(
+            models.Tickets.asset_id.in_(asset_ids),
+            models.Tickets.status == "selesai"
+        )
+        .group_by(models.Tickets.asset_id)
+        .all()
+    )
+    intensitas_dict = {asset_id: count for asset_id, count in intensitas_map}
+
+    aset_result = []
+    for t in latest_tickets:
+        aset_result.append({
+            "ticket_id": t.ticket_id,
+            "ticket_code": t.ticket_code,
+            "latest_report_date": t.created_at,
+            "title": t.title,
+            "description": t.description,
+            "status": t.status,
+            "request_type": t.request_type,
 
             "intensitas_laporan": intensitas_dict.get(t.asset_id, 0),
 
