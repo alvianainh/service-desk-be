@@ -991,6 +991,61 @@ def get_statistik_pengajuan_pelayanan(
         "total": len(results),
         "data": results
     }
+@router.get("/admin-opd/statistik/pengajuan-pelayanan/rekap")
+def get_rekap_pengajuan_pelayanan_bulanan(
+    year: Optional[int] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user_universal)
+):
+
+    # Validasi role admin OPD
+    if current_user.get("role_name") != "admin dinas":
+        raise HTTPException(
+            status_code=403,
+            detail="Akses ditolak: hanya admin OPD."
+        )
+
+    opd_id_user = current_user.get("dinas_id")
+
+    # Default tahun sekarang
+    if not year:
+        year = datetime.now().year
+
+    # Query group by bulan
+    raw_result = (
+        db.query(
+            extract("month", models.Tickets.created_at).label("bulan"),
+            func.count(models.Tickets.ticket_id).label("total")
+        )
+        .join(models.TicketServiceRequests,
+              models.TicketServiceRequests.ticket_id == models.Tickets.ticket_id)
+        .filter(
+            models.Tickets.opd_id_tickets == opd_id_user,
+            models.Tickets.request_type == "pengajuan_pelayanan",
+            models.Tickets.status == "selesai",
+            extract("year", models.Tickets.created_at) == year
+        )
+        .group_by(extract("month", models.Tickets.created_at))
+        .all()
+    )
+
+    # Convert hasil query ke dict {bulan: total}
+    hasil_map = {int(r.bulan): r.total for r in raw_result}
+
+    # Build response bulan 1–12
+    rekap = []
+    for bulan in range(1, 13):
+        rekap.append({
+            "bulan": bulan,
+            "total_tiket": hasil_map.get(bulan, None)  # None = null di JSON
+        })
+
+    return {
+        "tahun": year,
+        "opd_id": opd_id_user,
+        "rekap": rekap
+    }
+
 
 @router.get("/admin-opd/statistik/pengajuan-pelayanan/subkategori")
 def statistik_pengajuan_per_subkategori(
