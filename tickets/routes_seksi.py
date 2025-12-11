@@ -372,7 +372,7 @@ def get_tickets_pelaporan_online(
         )
 
     allowed_status = [
-        "Reopen",
+        # "Reopen",
         "Open",
         "verified by seksi",
         "rejected by bidang"
@@ -471,7 +471,7 @@ def get_tickets_pengajuan_pelayanan(
         )
 
     allowed_status = [
-        "Reopen",
+        # "Reopen",
         "Open",
         "verified by seksi",
         "rejected by bidang"
@@ -597,7 +597,7 @@ def get_ticket_detail_seksi(
         )
 
     allowed_status = [
-        "Reopen",
+        # "Reopen",
         "Open",           
         "verified by seksi",   
         "rejected by bidang"   
@@ -1090,7 +1090,8 @@ def get_tickets_verified_by_bidang_for_seksi(
             or_(
                 models.Tickets.status == "verified by bidang",
                 models.Tickets.status == "assigned to teknisi",
-                models.Tickets.status == "diproses"
+                models.Tickets.status == "diproses",
+                models.Tickets.status == "Reopen"
             ),
             models.Tickets.request_type == "pelaporan_online"
         )
@@ -1186,7 +1187,8 @@ def get_tickets_verified_by_bidang_for_seksi(
             or_(
                 models.Tickets.status == "verified by bidang",
                 models.Tickets.status == "assigned to teknisi",
-                models.Tickets.status == "diproses"
+                models.Tickets.status == "diproses",
+                models.Tickets.status == "Reopen"
             ),
             models.Tickets.request_type == "pengajuan_pelayanan"
         )
@@ -1240,6 +1242,7 @@ def get_tickets_verified_by_bidang_for_seksi(
             "area_dampak_nama_asset": t.area_dampak_nama_asset,
             "deskripsi_pengendalian_bidang": t.deskripsi_pengendalian_bidang,
             "expected_resolution": t.expected_resolution,
+            "lokasi_penempatan": t.lokasi_penempatan,
 
 
             "opd_id_tickets": t.opd_id_tickets,
@@ -1321,7 +1324,8 @@ def get_ticket_detail_verified_by_bidang_for_seksi(
             or_(
                 models.Tickets.status == "verified by bidang",
                 models.Tickets.status == "assigned to teknisi",
-                models.Tickets.status == "diproses"
+                models.Tickets.status == "diproses",
+                models.Tickets.status == "Reopen"
             ),
             models.Tickets.request_type.in_(["pelaporan_online", "pengajuan_pelayanan"])
         )

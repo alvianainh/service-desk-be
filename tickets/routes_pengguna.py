@@ -771,7 +771,6 @@ async def reopen_ticket(
     ticket.pengerjaan_akhir = None
     ticket.pengerjaan_awal_teknisi = None
     ticket.pengerjaan_akhir_teknisi = None
-    ticket.priority = None
 
 
     ticket.status = "Reopen"
