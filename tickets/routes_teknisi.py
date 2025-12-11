@@ -355,6 +355,7 @@ def get_tickets_for_teknisi(
                 "area_dampak_id_asset": t.area_dampak_id_asset,
                 "area_dampak_nama_asset": t.area_dampak_nama_asset,
                 "deskripsi_pengendalian_bidang": t.deskripsi_pengendalian_bidang,
+                "request_type": t.request_type,
 
                 "creator": {
                     "user_id": str(t.creates_id) if t.creates_id else None,
