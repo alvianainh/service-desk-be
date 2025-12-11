@@ -1814,3 +1814,103 @@ def export_pengajuan_pelayanan_excel_kota(
     )
 
 
+@router.get("/admin-kota/tickets-all/teknisi")
+def get_all_teknisi_tickets_admin_kota(
+    opd_id: Optional[int] = Query(None, description="Filter berdasarkan OPD"),
+    request_type: Optional[str] = Query(None, description="Filter berdasarkan request_type"),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user_universal)
+):
+
+    # Validasi role admin kota
+    if current_user.get("role_name") != "diskominfo":
+        raise HTTPException(
+            status_code=403,
+            detail="Akses ditolak: hanya admin kota (Diskominfo) yang dapat melihat tiket teknisi."
+        )
+
+    allowed_status = ["assigned to teknisi", "diproses"]
+
+    # Base query
+    query = db.query(models.Tickets).filter(
+        models.Tickets.assigned_teknisi_id.isnot(None),
+        models.Tickets.status.in_(allowed_status)
+    )
+
+    # Filter OPD jika diberikan
+    if opd_id:
+        query = query.filter(models.Tickets.opd_id_tickets == opd_id)
+
+    # Filter request_type jika diberikan
+    if request_type:
+        query = query.filter(models.Tickets.request_type == request_type)
+
+    # Sorting by opd_id naik, created_at turun
+    tickets = query.order_by(models.Tickets.opd_id_tickets.asc(), models.Tickets.created_at.desc()).all()
+
+    result = []
+
+    for t in tickets:
+        teknisi_user = db.query(Users).filter(Users.id == t.assigned_teknisi_id).first()
+        attachments = t.attachments if hasattr(t, "attachments") else []
+
+        result.append({
+            "ticket_id": str(t.ticket_id),
+            "ticket_code": t.ticket_code,
+            "title": t.title,
+            "description": t.description,
+            "status": t.status,
+            "priority": t.priority,
+            "created_at": t.created_at,
+            "ticket_source": t.ticket_source,
+            "request_type": t.request_type,
+            "opd_id_tickets": t.opd_id_tickets,
+
+            "pengerjaan_awal": t.pengerjaan_awal,
+            "pengerjaan_akhir": t.pengerjaan_akhir,
+            "pengerjaan_awal_teknisi": t.pengerjaan_awal_teknisi,
+            "pengerjaan_akhir_teknisi": t.pengerjaan_akhir_teknisi,
+
+            "assigned_teknisi": {
+                "id": teknisi_user.id if teknisi_user else None,
+                "full_name": teknisi_user.full_name if teknisi_user else None,
+                "email": teknisi_user.email if teknisi_user else None,
+                "profile": teknisi_user.profile_url if teknisi_user else None
+            },
+
+            "creator": {
+                "user_id": str(t.creates_id) if t.creates_id else None,
+                "full_name": t.creates_user.full_name if t.creates_user else None,
+                "profile": t.creates_user.profile_url if t.creates_user else None,
+                "email": t.creates_user.email if t.creates_user else None,
+            },
+
+            "asset": {
+                "asset_id": t.asset_id,
+                "nama_asset": t.nama_asset,
+                "kode_bmd": t.kode_bmd_asset,
+                "nomor_seri": t.nomor_seri_asset,
+                "kategori": t.kategori_asset,
+                "subkategori_id": t.subkategori_id_asset,
+                "subkategori_nama": t.subkategori_nama_asset,
+                "jenis_asset": t.jenis_asset,
+                "lokasi_asset": t.lokasi_asset,
+                "opd_id_asset": t.opd_id_asset,
+            },
+
+            "files": [
+                {
+                    "attachment_id": str(a.attachment_id),
+                    "file_path": a.file_path,
+                    "uploaded_at": a.uploaded_at
+                }
+                for a in attachments
+            ]
+        })
+
+    return {
+        "total": len(result),
+        "filter_opd": opd_id if opd_id else "all",
+        "filter_request_type": request_type if request_type else "all",
+        "data": result
+    }
