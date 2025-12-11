@@ -12,11 +12,15 @@ import uuid
 from auth.models import Opd, Dinas, Roles, Users
 import os
 from supabase import create_client, Client
-from sqlalchemy import text, or_
+from sqlalchemy import text, or_, extract, func
 import mimetypes
 from uuid import UUID, uuid4
 from typing import Optional, List
 import aiohttp, os, mimetypes, json
+from fastapi.responses import StreamingResponse, FileResponse
+from openpyxl import Workbook
+from io import BytesIO
+from sqlalchemy import extract
 
 
 
@@ -640,6 +644,264 @@ def get_statistik_priority_pelaporan_online(
         "priority_stats": list(priority_stats.values())
     }
 
+
+@router.get("/admin-opd/statistik/pelaporan-online/filter")
+def get_ratings_pelaporan_online_filter(
+    month: Optional[int] = Query(None, ge=1, le=12, description="Filter bulan (1-12)"),
+    year: Optional[int] = Query(None, description="Filter tahun (YYYY)"),
+    source: Optional[str] = Query(None, description="Filter ticket_source: Masyarakat / Pegawai"),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user_universal)
+):
+    # Hanya admin dinas
+    if current_user.get("role_name") != "admin dinas":
+        raise HTTPException(
+            status_code=403,
+            detail="Akses ditolak: hanya admin OPD yang dapat melihat data rating."
+        )
+
+    opd_id_user = current_user.get("dinas_id")
+
+    # Base query
+    query = (
+        db.query(models.Tickets)
+        .filter(
+            models.Tickets.opd_id_tickets == opd_id_user,
+            models.Tickets.request_type == "pelaporan_online",
+            models.Tickets.status == "selesai"
+        )
+    )
+
+    # Filter source
+    if source in ["Masyarakat", "Pegawai"]:
+        query = query.filter(models.Tickets.ticket_source == source)
+
+    # Filter berdasarkan tahun
+    if year:
+        query = query.filter(
+            extract('year', models.Tickets.created_at) == year
+        )
+
+    # Filter berdasarkan bulan
+    if month:
+        query = query.filter(
+            extract('month', models.Tickets.created_at) == month
+        )
+
+    tickets = query.order_by(models.Tickets.created_at.desc()).all()
+
+    results = []
+
+    for t in tickets:
+
+        rating = (
+            db.query(models.TicketRatings)
+            .filter(models.TicketRatings.ticket_id == t.ticket_id)
+            .first()
+        )
+
+        # Skip jika belum ada rating
+        if not rating:
+            continue
+
+        attachments = t.attachments if hasattr(t, "attachments") else []
+
+        results.append({
+            "ticket_id": str(t.ticket_id),
+            "ticket_code": t.ticket_code,
+            "title": t.title,
+            "status": t.status,
+            "priority": t.priority,
+            "lokasi_kejadian": t.lokasi_kejadian,
+            "created_at": t.created_at,
+            "ticket_source": t.ticket_source,
+            "pengerjaan_awal": t.pengerjaan_awal,
+            "pengerjaan_akhir": t.pengerjaan_akhir,
+            "pengerjaan_awal_teknisi": t.pengerjaan_awal_teknisi,
+            "pengerjaan_akhir_teknisi": t.pengerjaan_akhir_teknisi,
+
+            "rating": rating.rating,
+            "comment": rating.comment,
+            "rated_at": rating.created_at,
+
+            "user": {
+                "user_id": str(t.creates_id) if t.creates_id else None,
+                "full_name": t.creates_user.full_name if t.creates_user else None,
+                "email": t.creates_user.email if t.creates_user else None,
+                "profile": t.creates_user.profile_url if t.creates_user else None,
+            },
+
+            "asset": {
+                "asset_id": t.asset_id,
+                "nama_asset": t.nama_asset,
+                "kode_bmd": t.kode_bmd_asset,
+                "nomor_seri": t.nomor_seri_asset,
+                "kategori": t.kategori_asset,
+                "subkategori_id": t.subkategori_id_asset,
+                "subkategori_nama": t.subkategori_nama_asset,
+                "jenis_asset": t.jenis_asset,
+                "lokasi_asset": t.lokasi_asset,
+                "opd_id_asset": t.opd_id_asset,
+            },
+
+            "files": [
+                {
+                    "attachment_id": str(a.attachment_id),
+                    "file_path": a.file_path,
+                    "uploaded_at": a.uploaded_at
+                }
+                for a in attachments
+            ]
+        })
+
+    return {
+        "total": len(results),
+        "filter_month": month if month else "all",
+        "filter_year": year if year else "all",
+        "filter_source": source if source else "all",
+        "data": results
+    }
+
+
+@router.get("/admin-opd/statistik/pelaporan-online/export")
+def export_pelaporan_online_excel(
+    month: Optional[int] = Query(None, ge=1, le=12),
+    year: Optional[int] = Query(None),
+    source: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user_universal)
+):
+    # Akses admin dinas
+    if current_user.get("role_name") != "admin dinas":
+        raise HTTPException(
+            status_code=403,
+            detail="Akses ditolak: hanya admin OPD yang dapat mengexport data."
+        )
+
+    opd_id_user = current_user.get("dinas_id")
+
+    # Query utama
+    query = (
+        db.query(models.Tickets)
+        .filter(
+            models.Tickets.opd_id_tickets == opd_id_user,
+            models.Tickets.request_type == "pelaporan_online",
+            models.Tickets.status == "selesai"
+        )
+    )
+
+    if source in ["Masyarakat", "Pegawai"]:
+        query = query.filter(models.Tickets.ticket_source == source)
+
+    if year:
+        query = query.filter(extract("year", models.Tickets.created_at) == year)
+
+    if month:
+        query = query.filter(extract("month", models.Tickets.created_at) == month)
+
+    tickets = query.order_by(models.Tickets.created_at.desc()).all()
+
+    # Mulai buat Excel
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Pelaporan Online"
+
+    # Header Excel (sesuai hasil return JSON)
+    headers = [
+        "ticket_id", "ticket_code", "title", "status", "priority",
+        "lokasi_kejadian", "created_at", "ticket_source",
+
+        # pengerjaan
+        "pengerjaan_awal", "pengerjaan_akhir",
+        "pengerjaan_awal_teknisi", "pengerjaan_akhir_teknisi",
+
+        # rating
+        "rating", "comment", "rated_at",
+
+        # user
+        "user_id", "full_name", "email", "profile",
+
+        # asset
+        "asset_id", "nama_asset", "kode_bmd", "nomor_seri", "kategori",
+        "subkategori_id", "subkategori_nama", "jenis_asset", "lokasi_asset", "opd_id_asset",
+
+        # list file akan digabung (dipisah koma)
+        "files"
+    ]
+
+    ws.append(headers)
+
+    # Isi data baris per baris
+    for t in tickets:
+        rating = (
+            db.query(models.TicketRatings)
+            .filter(models.TicketRatings.ticket_id == t.ticket_id)
+            .first()
+        )
+        if not rating:
+            continue
+
+        attachments = t.attachments if hasattr(t, "attachments") else []
+        file_list = ", ".join([a.file_path for a in attachments]) if attachments else ""
+
+        row = [
+            str(t.ticket_id),
+            t.ticket_code,
+            t.title,
+            t.status,
+            t.priority,
+            t.lokasi_kejadian,
+            t.created_at,
+            t.ticket_source,
+
+            t.pengerjaan_awal,
+            t.pengerjaan_akhir,
+            t.pengerjaan_awal_teknisi,
+            t.pengerjaan_akhir_teknisi,
+
+            rating.rating,
+            rating.comment,
+            rating.created_at,
+
+            # user
+            str(t.creates_id) if t.creates_id else None,
+            t.creates_user.full_name if t.creates_user else None,
+            t.creates_user.email if t.creates_user else None,
+            t.creates_user.profile_url if t.creates_user else None,
+
+            # asset
+            t.asset_id,
+            t.nama_asset,
+            t.kode_bmd_asset,
+            t.nomor_seri_asset,
+            t.kategori_asset,
+            t.subkategori_id_asset,
+            t.subkategori_nama_asset,
+            t.jenis_asset,
+            t.lokasi_asset,
+            t.opd_id_asset,
+
+            file_list
+        ]
+
+        ws.append(row)
+
+    # Simpan file
+    filename = f"pelaporan_online_export_{uuid.uuid4()}.xlsx"
+    filepath = os.path.join("exports", filename)
+
+    os.makedirs("exports", exist_ok=True)
+    wb.save(filepath)
+
+    return FileResponse(
+        filepath,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        filename=filename
+    )
+
+
+
+
 @router.get("/admin-opd/statistik/pengajuan-pelayanan")
 def get_statistik_pengajuan_pelayanan(
     db: Session = Depends(get_db),
@@ -661,7 +923,8 @@ def get_statistik_pengajuan_pelayanan(
         .join(models.TicketServiceRequests, models.TicketServiceRequests.ticket_id == models.Tickets.ticket_id)
         .filter(
             models.Tickets.opd_id_tickets == opd_id_user,
-            models.Tickets.request_type == "pengajuan_pelayanan"
+            models.Tickets.request_type == "pengajuan_pelayanan",
+            models.Tickets.status == "selesai",
         )
         .order_by(models.Tickets.created_at.desc())
         .all()
@@ -727,4 +990,436 @@ def get_statistik_pengajuan_pelayanan(
     return {
         "total": len(results),
         "data": results
+    }
+
+@router.get("/admin-opd/statistik/pengajuan-pelayanan/subkategori")
+def statistik_pengajuan_per_subkategori(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user_universal)
+):
+
+    if current_user.get("role_name") != "admin dinas":
+        raise HTTPException(
+            status_code=403,
+            detail="Akses ditolak: hanya admin OPD."
+        )
+
+    opd_id_user = current_user.get("dinas_id")
+
+    # Ambil semua tiket selesai pengajuan_pelayanan milik OPD
+    tickets = (
+        db.query(models.Tickets)
+        .join(models.TicketServiceRequests, models.TicketServiceRequests.ticket_id == models.Tickets.ticket_id)
+        .filter(
+            models.Tickets.opd_id_tickets == opd_id_user,
+            models.Tickets.request_type == "pengajuan_pelayanan",
+            models.Tickets.status == "selesai",
+        )
+        .all()
+    )
+
+    statistik = {}
+
+    for t in tickets:
+        sr = t.service_request[0] if t.service_request else None
+        if not sr:
+            continue
+
+        key = (sr.subkategori_id, sr.subkategori_nama)
+
+        if key not in statistik:
+            statistik[key] = 0
+
+        statistik[key] += 1
+
+    result = [
+        {
+            "subkategori_id": sub_id,
+            "subkategori_nama": sub_nama,
+            "jumlah": count
+        }
+        for (sub_id, sub_nama), count in statistik.items()
+    ]
+
+    return {
+        "total": len(tickets),
+        "statistik_subkategori": result
+    }
+
+
+@router.get("/admin-opd/statistik/pengajuan-pelayanan/priority")
+def statistik_pengajuan_per_priority(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user_universal)
+):
+
+    if current_user.get("role_name") != "admin dinas":
+        raise HTTPException(
+            status_code=403,
+            detail="Akses ditolak: hanya admin OPD."
+        )
+
+    opd_id_user = current_user.get("dinas_id")
+
+    tickets = (
+        db.query(models.Tickets)
+        .join(models.TicketServiceRequests, models.TicketServiceRequests.ticket_id == models.Tickets.ticket_id)
+        .filter(
+            models.Tickets.opd_id_tickets == opd_id_user,
+            models.Tickets.request_type == "pengajuan_pelayanan",
+            models.Tickets.status == "selesai",
+        )
+        .all()
+    )
+
+    statistik = {}
+
+    for t in tickets:
+        key = t.priority or "unknown"
+
+        if key not in statistik:
+            statistik[key] = 0
+
+        statistik[key] += 1
+
+    result = [
+        {
+            "priority": priority,
+            "jumlah": count
+        }
+        for priority, count in statistik.items()
+    ]
+
+    return {
+        "total": len(tickets),
+        "statistik_priority": result
+    }
+
+@router.get("/admin-opd/statistik/pengajuan-pelayanan/filter")
+def get_statistik_pengajuan_pelayanan_filter(
+    month: Optional[int] = Query(None, ge=1, le=12, description="Filter bulan (1-12)"),
+    year: Optional[int] = Query(None, description="Filter tahun (YYYY)"),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user_universal)
+):
+
+    # Hanya admin OPD
+    if current_user.get("role_name") != "admin dinas":
+        raise HTTPException(
+            status_code=403,
+            detail="Akses ditolak: hanya admin OPD yang dapat melihat data pengajuan pelayanan."
+        )
+
+    opd_id_user = current_user.get("dinas_id")
+
+    # Base Query
+    query = (
+        db.query(models.Tickets)
+        .join(models.TicketServiceRequests, models.TicketServiceRequests.ticket_id == models.Tickets.ticket_id)
+        .filter(
+            models.Tickets.opd_id_tickets == opd_id_user,
+            models.Tickets.request_type == "pengajuan_pelayanan",
+            models.Tickets.status == "selesai"
+        )
+    )
+
+    # Filter berdasarkan tahun
+    if year:
+        query = query.filter(
+            extract('year', models.Tickets.created_at) == year
+        )
+
+    # Filter berdasarkan bulan
+    if month:
+        query = query.filter(
+            extract('month', models.Tickets.created_at) == month
+        )
+
+    tickets = query.order_by(models.Tickets.created_at.desc()).all()
+
+    results = []
+
+    for t in tickets:
+
+        # Ambil pengajuan pelayanan (form data)
+        sr = t.service_request[0] if t.service_request else None
+
+        attachments = t.attachments if hasattr(t, "attachments") else []
+
+        results.append({
+            "ticket_id": str(t.ticket_id),
+            "ticket_code": t.ticket_code,
+            "title": t.title,
+            "status": t.status,
+            "priority": t.priority,
+            "created_at": t.created_at,
+            "ticket_source": t.ticket_source,
+            "request_type": t.request_type,
+
+            # Pengerjaan
+            "pengerjaan_awal": t.pengerjaan_awal,
+            "pengerjaan_akhir": t.pengerjaan_akhir,
+            "pengerjaan_awal_teknisi": t.pengerjaan_awal_teknisi,
+            "pengerjaan_akhir_teknisi": t.pengerjaan_akhir_teknisi,
+
+            # User
+            "user": {
+                "user_id": str(t.creates_id) if t.creates_id else None,
+                "full_name": t.creates_user.full_name if t.creates_user else None,
+                "email": t.creates_user.email if t.creates_user else None,
+                "profile": t.creates_user.profile_url if t.creates_user else None,
+            },
+
+            # Detail Form Pengajuan Pelayanan
+            "pengajuan_pelayanan": {
+                "unit_kerja_id": sr.unit_kerja_id if sr else None,
+                "unit_kerja_nama": sr.unit_kerja_nama if sr else None,
+                "lokasi_id": sr.lokasi_id if sr else None,
+                "nama_aset_baru": sr.nama_aset_baru if sr else None,
+                "kategori_aset": sr.kategori_aset if sr else None,
+                "subkategori_id": sr.subkategori_id if sr else None,
+                "subkategori_nama": sr.subkategori_nama if sr else None,
+                "id_asset": sr.id_asset if sr else None,
+                "extra_metadata": sr.extra_metadata if sr else None,
+                "created_at": sr.created_at if sr else None,
+            },
+
+            # FILES
+            "files": [
+                {
+                    "attachment_id": str(a.attachment_id),
+                    "file_path": a.file_path,
+                    "uploaded_at": a.uploaded_at
+                }
+                for a in attachments
+            ]
+        })
+
+    return {
+        "total": len(results),
+        "filter_month": month if month else "all",
+        "filter_year": year if year else "all",
+        "data": results
+    }
+
+@router.get("/admin-opd/statistik/pengajuan-pelayanan/export")
+def export_pengajuan_pelayanan_excel(
+    month: Optional[int] = Query(None, ge=1, le=12),
+    year: Optional[int] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user_universal)
+):
+
+    if current_user.get("role_name") != "admin dinas":
+        raise HTTPException(
+            status_code=403,
+            detail="Akses ditolak: hanya admin OPD."
+        )
+
+    opd_id_user = current_user.get("dinas_id")
+
+    query = (
+        db.query(models.Tickets)
+        .join(models.TicketServiceRequests, models.TicketServiceRequests.ticket_id == models.Tickets.ticket_id)
+        .filter(
+            models.Tickets.opd_id_tickets == opd_id_user,
+            models.Tickets.request_type == "pengajuan_pelayanan",
+            models.Tickets.status == "selesai"
+        )
+    )
+
+    if year:
+        query = query.filter(extract("year", models.Tickets.created_at) == year)
+
+    if month:
+        query = query.filter(extract("month", models.Tickets.created_at) == month)
+
+    tickets = query.order_by(models.Tickets.created_at.desc()).all()
+
+    # ========================
+    # Excel
+    # ========================
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Pengajuan Pelayanan"
+
+    headers = [
+        "ticket_id", "ticket_code", "title", "status", "priority",
+        "created_at", "ticket_source", "request_type",
+
+        "pengerjaan_awal", "pengerjaan_akhir",
+        "pengerjaan_awal_teknisi", "pengerjaan_akhir_teknisi",
+
+        # USER
+        "user_id", "user_full_name", "user_email", "user_profile",
+
+        # Form Pengajuan Pelayanan
+        "unit_kerja_id", "unit_kerja_nama",
+        "lokasi_id", "nama_aset_baru",
+        "kategori_aset", "subkategori_id",
+        "subkategori_nama", "id_asset",
+        "extra_metadata", "form_created_at",
+
+        # Files
+        "file_paths"
+    ]
+
+    ws.append(headers)
+
+    for t in tickets:
+        sr = t.service_request[0] if t.service_request else None
+        attachments = t.attachments if hasattr(t, "attachments") else []
+
+        file_paths = ", ".join(a.file_path for a in attachments) if attachments else ""
+
+        row = [
+            str(t.ticket_id),
+            t.ticket_code,
+            t.title,
+            t.status,
+            t.priority,
+            t.created_at,
+            t.ticket_source,
+            t.request_type,
+
+            t.pengerjaan_awal,
+            t.pengerjaan_akhir,
+            t.pengerjaan_awal_teknisi,
+            t.pengerjaan_akhir_teknisi,
+
+            str(t.creates_id) if t.creates_id else None,
+            t.creates_user.full_name if t.creates_user else None,
+            t.creates_user.email if t.creates_user else None,
+            t.creates_user.profile_url if t.creates_user else None,
+
+            sr.unit_kerja_id if sr else None,
+            sr.unit_kerja_nama if sr else None,
+            sr.lokasi_id if sr else None,
+            sr.nama_aset_baru if sr else None,
+            sr.kategori_aset if sr else None,
+            sr.subkategori_id if sr else None,
+            sr.subkategori_nama if sr else None,
+            sr.id_asset if sr else None,
+            sr.extra_metadata if sr else None,
+            sr.created_at if sr else None,
+
+            file_paths
+        ]
+
+        ws.append(row)
+
+    # ========================
+    # Save as FILE (bukan BytesIO)
+    # ========================
+    os.makedirs("exports", exist_ok=True)
+    filename = f"pengajuan_pelayanan_export_{uuid.uuid4()}.xlsx"
+    filepath = os.path.join("exports", filename)
+
+    wb.save(filepath)
+
+    return FileResponse(
+        filepath,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        filename=filename
+    )
+
+
+
+@router.get("/admin-opd/tickets/teknisi")
+def get_all_teknisi_tickets_for_admin_opd(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user_universal)
+):
+
+    if current_user.get("role_name") != "admin dinas":
+        raise HTTPException(
+            status_code=403,
+            detail="Akses ditolak: hanya admin OPD yang dapat melihat tiket teknisi."
+        )
+
+    opd_id_user = current_user.get("dinas_id")
+
+    if not opd_id_user:
+        raise HTTPException(
+            status_code=400,
+            detail="Admin tidak memiliki OPD"
+        )
+
+    allowed_status = ["assigned to teknisi", "diproses"]
+
+    tickets = (
+        db.query(models.Tickets)
+        .filter(
+            models.Tickets.opd_id_tickets == opd_id_user,
+            models.Tickets.assigned_teknisi_id.isnot(None),
+            models.Tickets.status.in_(allowed_status)
+        )
+        .order_by(models.Tickets.created_at.desc())
+        .all()
+    )
+
+    result = []
+
+    for t in tickets:
+
+        teknisi_user = db.query(Users).filter(Users.id == t.assigned_teknisi_id).first()
+
+        attachments = t.attachments if hasattr(t, "attachments") else []
+
+        result.append({
+            "ticket_id": str(t.ticket_id),
+            "ticket_code": t.ticket_code,
+            "title": t.title,
+            "description": t.description,
+            "status": t.status,
+            "priority": t.priority,
+            "created_at": t.created_at,
+            "ticket_source": t.ticket_source,
+            "request_type": t.request_type,
+
+            "pengerjaan_awal": t.pengerjaan_awal,
+            "pengerjaan_akhir": t.pengerjaan_akhir,
+            "pengerjaan_awal_teknisi": t.pengerjaan_awal_teknisi,
+            "pengerjaan_akhir_teknisi": t.pengerjaan_akhir_teknisi,
+
+            "assigned_teknisi": {
+                "id": teknisi_user.id if teknisi_user else None,
+                "full_name": teknisi_user.full_name if teknisi_user else None,
+                "email": teknisi_user.email if teknisi_user else None,
+                "profile": teknisi_user.profile_url if teknisi_user else None
+            },
+
+            "creator": {
+                "user_id": str(t.creates_id) if t.creates_id else None,
+                "full_name": t.creates_user.full_name if t.creates_user else None,
+                "profile": t.creates_user.profile_url if t.creates_user else None,
+                "email": t.creates_user.email if t.creates_user else None,
+            },
+
+            "asset": {
+                "asset_id": t.asset_id,
+                "nama_asset": t.nama_asset,
+                "kode_bmd": t.kode_bmd_asset,
+                "nomor_seri": t.nomor_seri_asset,
+                "kategori": t.kategori_asset,
+                "subkategori_id": t.subkategori_id_asset,
+                "subkategori_nama": t.subkategori_nama_asset,
+                "jenis_asset": t.jenis_asset,
+                "lokasi_asset": t.lokasi_asset,
+                "opd_id_asset": t.opd_id_asset,
+            },
+
+            "files": [
+                {
+                    "attachment_id": str(a.attachment_id),
+                    "file_path": a.file_path,
+                    "uploaded_at": a.uploaded_at
+                }
+                for a in attachments
+            ]
+        })
+
+    return {
+        "total": len(result),
+        "data": result
     }
