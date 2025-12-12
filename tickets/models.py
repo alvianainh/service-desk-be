@@ -122,6 +122,9 @@ class Tickets(Base):
     area_dampak_nama_asset = Column(String, nullable=True)
     deskripsi_pengendalian_bidang = Column(String, nullable=True)
     lokasi_penempatan = Column(String, nullable=True)
+    rfc_required = Column(Boolean, default=False) 
+    incident_repeat_flag = Column(Boolean, default=False)
+    nilai_risiko_asset = Column(Integer, nullable=True)
 
     # Relations
     creates_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"))
@@ -164,6 +167,65 @@ class Tickets(Base):
             name="tickets_request_type_check"
         ),
     )
+
+class RFCChangeRequest(Base):
+    __tablename__ = "rfc_change_request"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    ticket_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("tickets.ticket_id"),
+        nullable=True 
+    )
+
+    judul_perubahan = Column(String(255))
+    kategori_aset = Column(String(255))
+    id_aset = Column(Integer)
+
+    requested_by = Column(UUID(as_uuid=True), ForeignKey("users.id"))
+    
+    deskripsi_aset = Column(Text)
+    alasan_perubahan = Column(Text)
+    dampak_perubahan = Column(Text)
+    dampak_jika_tidak = Column(Text)
+    biaya_estimasi = Column(Integer)
+    nama_pemohon = Column(String(255))
+    opd_pemohon = Column(String(255))
+    risk_score_aset = Column(Integer)
+
+    status = Column(String(50), default="pending")
+    approved_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    approved_at = Column(DateTime, nullable=True)
+
+    created_at = Column(DateTime, server_default=func.now())
+
+    # Relationships
+    tiket = relationship("Tickets", backref="rfc_requests", foreign_keys=[ticket_id])
+    requester = relationship("Users", backref="rfc_created", foreign_keys=[requested_by])
+    approver = relationship("Users", backref="rfc_approved", foreign_keys=[approved_by])
+
+class RFCIncidentRepeat(Base):
+    __tablename__ = "rfc_incident_repeat"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    judul_perubahan = Column(String(255))
+    kategori_aset = Column(String(255))
+    id_aset = Column(Integer)
+    deskripsi_aset = Column(Text)
+    alasan_perubahan = Column(Text)
+    dampak_perubahan = Column(Text)
+    dampak_jika_tidak = Column(Text)
+    biaya_estimasi = Column(Integer)
+    nama_pemohon = Column(String(255))
+    opd_pemohon = Column(String(255))
+    risk_score_aset = Column(Integer)
+
+    dibuat_oleh = Column(UUID(as_uuid=True), ForeignKey("users.id"))  # seksi_id
+    created_at = Column(DateTime, server_default=func.now())
+
+    dibuat_oleh_user = relationship("Users", backref="rfc_incident_reports")
 
 class TicketRatings(Base):
     __tablename__ = "ticket_ratings"

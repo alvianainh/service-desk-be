@@ -1,5 +1,5 @@
 import logging
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status, Response
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status, Response, Header
 from sqlalchemy.orm import Session
 from datetime import datetime, time
 from . import models, schemas
@@ -558,6 +558,7 @@ def get_tickets_pelaporan_online(
                 "status_ticket_pengguna": t.status_ticket_pengguna,
                 "status_ticket_seksi": t.status_ticket_seksi,
                 "request_type": t.request_type,
+                "nilai_risiko_asset": t.nilai_risiko_asset,
 
                 "opd_id_tickets": t.opd_id_tickets,
                 "lokasi_kejadian": t.lokasi_kejadian,
@@ -797,6 +798,7 @@ def get_ticket_detail_seksi(
         "status_ticket_pengguna": ticket.status_ticket_pengguna,
         "status_ticket_seksi": ticket.status_ticket_seksi,
         "request_type": ticket.request_type,
+        "nilai_risiko_asset":  ticket.nilai_risiko_asset,
 
         "creator": {
             "user_id": str(ticket.creates_id) if ticket.creates_id else None,
@@ -1735,6 +1737,7 @@ async def assign_teknisi(
     ticket.status_ticket_teknisi = "Draft"
     ticket.status_ticket_pengguna = "proses penugasan teknisi"
     ticket.status_ticket_seksi = "diproses"
+    ticket.incident_repeat_flag = payload.incident_repeat_flag
 
     teknisi.teknisi_kuota_terpakai += 1
 
@@ -1758,14 +1761,21 @@ async def assign_teknisi(
     )
 
     # ==== notif ke teknisi yang diassign ====
+
+    notif_message = f"Tiket {ticket.ticket_code} telah diassign ke Anda untuk diproses"
+
+    if payload.incident_repeat_flag:
+        notif_message += " (Termasuk insiden berulang – pertimbangkan membuat RFC)"
+
     db.add(models.Notifications(
         user_id=teknisi.id,
         ticket_id=ticket.ticket_id,
-        message=f"Tiket {ticket.ticket_code} telah diassign ke Anda untuk diproses",
+        message=notif_message,
         status="Tiket Baru",
         is_read=False,
         created_at=datetime.utcnow()
     ))
+
     db.commit()
 
 

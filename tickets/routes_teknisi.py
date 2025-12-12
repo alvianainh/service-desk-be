@@ -1,13 +1,13 @@
 import logging
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status, Response
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status, Response, Header, Query
 from sqlalchemy.orm import Session
 from datetime import datetime, time
 from . import models, schemas
 from auth.database import get_db
 from auth.auth import get_current_user, get_user_by_email, get_current_user_masyarakat, get_current_user_universal
 from tickets import models, schemas
-from tickets.models import Tickets, TicketAttachment, TicketCategories, TicketUpdates, TeknisiTags, TeknisiLevels, TicketRatings, Notifications
-from tickets.schemas import TicketCreateSchema, TicketResponseSchema, TicketCategorySchema, TicketForSeksiSchema, TicketTrackResponse, UpdatePriority, ManualPriority, RejectReasonSeksi, RejectReasonBidang, AssignTeknisiSchema
+from tickets.models import Tickets, TicketAttachment, TicketCategories, TicketUpdates, TeknisiTags, TeknisiLevels, TicketRatings, Notifications, RFCIncidentRepeat
+from tickets.schemas import TicketCreateSchema, TicketResponseSchema, TicketCategorySchema, TicketForSeksiSchema, TicketTrackResponse, UpdatePriority, ManualPriority, RejectReasonSeksi, RejectReasonBidang, AssignTeknisiSchema, RFCIncidentRepeatSchema
 import uuid
 from auth.models import Opd, Dinas, Roles, Users
 import os
@@ -19,6 +19,7 @@ from typing import Optional, List
 import aiohttp, os, mimetypes, json
 import asyncio
 from websocket.notifier import push_notification
+import requests
 
 
 
@@ -305,7 +306,6 @@ def get_teknisi_notifications(
     teknisi_id = current_user.get("id")
     now = datetime.utcnow()
 
-    # 1️⃣ Cek tiket assigned ke teknisi yang belum selesai
     tickets = db.query(Tickets).filter(
         Tickets.assigned_teknisi_id == teknisi_id,
         Tickets.status != "selesai",
@@ -320,7 +320,6 @@ def get_teknisi_notifications(
             continue
         progress = elapsed / total_duration
 
-        # 2️⃣ Jika sudah 75% progress tapi belum ada notif SLA, buat notif
         if progress >= 0.75:
             existing = db.query(Notifications).filter_by(
                 ticket_id=ticket.ticket_id,
@@ -338,7 +337,6 @@ def get_teknisi_notifications(
                 ))
                 db.commit()
 
-    # 3️⃣ Ambil semua notif teknisi
     notifications = db.query(Notifications).filter_by(
         user_id=teknisi_id
     ).order_by(Notifications.created_at.desc()).all()
@@ -352,7 +350,6 @@ def get_teknisi_notifications(
         "created_at": n.created_at
     } for n in notifications]
 
-    # 4️⃣ Hitung total notif & unread
     total = len(result)
     unread = sum(1 for n in result if not n["is_read"])
 
@@ -371,7 +368,6 @@ def get_teknisi_notification_by_id(
     if current_user.get("role_name") != "teknisi":
         raise HTTPException(403, "Hanya teknisi yang bisa melihat notifikasi ini")
 
-    # Ambil notif berdasarkan ID dan user
     notif = db.query(Notifications).filter(
         Notifications.id == notification_id,
         Notifications.user_id == current_user["id"]
@@ -380,7 +376,6 @@ def get_teknisi_notification_by_id(
     if not notif:
         raise HTTPException(404, "Notifikasi tidak ditemukan")
 
-    # Ambil data tiket jika ada
     ticket = None
     if notif.ticket_id:
         ticket = db.query(Tickets).filter(Tickets.ticket_id == notif.ticket_id).first()
@@ -432,7 +427,6 @@ def mark_all_teknisi_notifications_read(
     if current_user.get("role_name") != "teknisi":
         raise HTTPException(403, "Hanya teknisi yang bisa mengubah notifikasi")
 
-    # Ambil semua notif yang belum dibaca
     notifs = db.query(Notifications).filter(
         Notifications.user_id == current_user["id"],
         Notifications.is_read == False
@@ -496,7 +490,6 @@ def dashboard_teknisi_summary(
             detail="User tidak memiliki OPD"
         )
 
-    # Ambil semua tiket teknisi
     tickets = db.query(models.Tickets) \
         .filter(models.Tickets.opd_id_tickets == teknisi_opd_id) \
         .filter(models.Tickets.assigned_teknisi_id == teknisi_user_id) \
@@ -506,7 +499,6 @@ def dashboard_teknisi_summary(
     in_progress = sum(1 for t in tickets if t.status in ["assigned to teknisi", "diproses"])
     reopen = sum(1 for t in tickets if t.status == "reopen")
 
-    # Hitung tiket mendekati deadline
     approaching_deadline = 0
     now = datetime.now()
 
@@ -514,7 +506,6 @@ def dashboard_teknisi_summary(
         if not t.pengerjaan_awal or not t.pengerjaan_akhir:
             continue
 
-        # Lewati tiket yang sudah selesai
         if t.status == "selesai":
             continue
 
@@ -591,6 +582,7 @@ def get_tickets_for_teknisi(
                 "pengerjaan_akhir": t.pengerjaan_akhir,
                 "pengerjaan_awal_teknisi": t.pengerjaan_awal_teknisi,
                 "pengerjaan_akhir_teknisi": t.pengerjaan_akhir_teknisi,
+                "rfc_required": t.rfc_required,
 
                 "kategori_risiko_id_asset": t.kategori_risiko_id_asset,
                 "kategori_risiko_nama_asset": t.kategori_risiko_nama_asset,
@@ -599,7 +591,8 @@ def get_tickets_for_teknisi(
                 "area_dampak_id_asset": t.area_dampak_id_asset,
                 "area_dampak_nama_asset": t.area_dampak_nama_asset,
                 "deskripsi_pengendalian_bidang": t.deskripsi_pengendalian_bidang,
-                "request_type": t.request_type,
+                # "request_type": t.request_type,
+                "incident_repeat_flag": t.incident_repeat_flag,
 
                 "creator": {
                     "user_id": str(t.creates_id) if t.creates_id else None,
@@ -705,6 +698,9 @@ def get_ticket_detail_for_teknisi(
         "area_dampak_id_asset": ticket.area_dampak_id_asset,
         "area_dampak_nama_asset": ticket.area_dampak_nama_asset,
         "deskripsi_pengendalian_bidang": ticket.deskripsi_pengendalian_bidang,
+        # "rfc_required": ticket.rfc_required,
+        "incident_repeat_flag": ticket.incident_repeat_flag,
+
 
         "status_ticket_pengguna": ticket.status_ticket_pengguna,
         "status_ticket_seksi": ticket.status_ticket_seksi,
@@ -1171,4 +1167,164 @@ def get_rating_detail_for_teknisi(
             }
             for a in attachments
         ]
+    }
+
+TRACE_BASE_URL = "https://trace-app.my.id"
+
+@router.get("/configuration-items/active")
+def get_active_configuration_items(
+    current_user: dict = Depends(get_current_user_universal)
+):
+    token = current_user.get("access_token")
+
+    url = "https://trace-app.my.id/api/configuration-items/search"
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "accept": "application/json"
+    }
+
+    # pagination default
+    page = 1
+    per_page = 100
+
+    all_data = []
+
+    while True:
+        params = {
+            "type": "other",
+            "status": "active",
+            "page": page,
+            "per_page": per_page
+        }
+
+        response = requests.get(url, headers=headers, params=params)
+
+        if response.status_code != 200:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Gagal fetch data CI dari Change: {response.text}"
+            )
+
+        result = response.json()
+
+        # append data CI
+        all_data.extend(result.get("data", []))
+
+        pagination = result.get("pagination", {})
+        last_page = pagination.get("last_page", 1)
+
+        # kalau sudah di halaman terakhir → stop loop
+        if page >= last_page:
+            break
+
+        page += 1
+
+    return {
+        "success": True,
+        "total": len(all_data),
+        "items": all_data
+    }
+
+ARISE_BASE_URL = "https://arise-app.my.id"
+
+@router.post("/rfc/incident-repeat")
+def create_rfc_incident_repeat(
+    payload: RFCIncidentRepeatSchema,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user_universal)
+):
+    # hanya teknisi
+    if current_user.get("role_name") != "teknisi":
+        raise HTTPException(403, "Akses ditolak: hanya teknisi")
+
+    token = current_user.get("access_token")
+    if not token:
+        raise HTTPException(401, "Token tidak ditemukan")
+
+    # ============ GET USER FROM DB ============
+    user = (
+        db.query(Users)
+        .filter(Users.id == current_user["id"])
+        .first()
+    )
+
+    if not user:
+        raise HTTPException(400, "User tidak ditemukan")
+
+    nama_pemohon = user.full_name
+
+    opd_pemohon = current_user.get("dinas_name")
+    if not opd_pemohon:
+        raise HTTPException(400, "Nama OPD tidak ditemukan di token")
+
+    asset_res = requests.get(
+        f"{ARISE_BASE_URL}/api/asset-barang/{payload.id_aset}",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "accept": "application/json"
+        }
+    )
+
+    if asset_res.status_code != 200:
+        raise HTTPException(400, f"Gagal fetch asset: {asset_res.text}")
+
+    asset_data = asset_res.json()["data"]
+
+    kategori_aset = asset_data.get("kategori")
+    risk_score_aset = asset_data.get("nilai_resiko") or 0
+
+    deskripsi_aset = payload.deskripsi_aset
+
+    trace_payload = {
+        "judul_perubahan": payload.judul_perubahan,
+        "kategori_aset": kategori_aset,
+        "id_aset": payload.id_aset,
+        "deskripsi_aset": deskripsi_aset,
+        "alasan_perubahan": payload.alasan_perubahan,
+        "dampak_perubahan": payload.dampak_perubahan,
+        "dampak_jika_tidak": payload.dampak_jika_tidak,
+        "biaya_estimasi": payload.biaya_estimasi,
+        "nama_pemohon": nama_pemohon,      # <-- full_name dari Users
+        "opd_pemohon": opd_pemohon,
+        "risk_score_aset": risk_score_aset,
+    }
+
+    trace_res = requests.post(
+        f"{TRACE_BASE_URL}/api/change-managements",
+        json=trace_payload,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json"
+        }
+    )
+
+    if trace_res.status_code not in (200, 201):
+        raise HTTPException(400, f"Gagal create RFC: {trace_res.text}")
+
+    trace_data = trace_res.json()
+
+    new_rfc = RFCIncidentRepeat(
+        judul_perubahan=payload.judul_perubahan,
+        kategori_aset=kategori_aset,
+        id_aset=payload.id_aset,
+        deskripsi_aset=deskripsi_aset,
+        alasan_perubahan=payload.alasan_perubahan,
+        dampak_perubahan=payload.dampak_perubahan,
+        dampak_jika_tidak=payload.dampak_jika_tidak,
+        biaya_estimasi=payload.biaya_estimasi,
+        nama_pemohon=nama_pemohon,   
+        opd_pemohon=opd_pemohon,
+        risk_score_aset=risk_score_aset,
+        dibuat_oleh=current_user["id"]
+    )
+
+    db.add(new_rfc)
+    db.commit()
+    db.refresh(new_rfc)
+
+    return {
+        "message": "RFC insiden berulang berhasil diajukan",
+        "local_rfc_id": str(new_rfc.id),
+        "trace_response": trace_data
     }

@@ -514,6 +514,7 @@ async def create_public_report(
     asset_subkategori_id = aset.get("asset_barang", {}).get("sub_kategori", {}).get("id")
     asset_jenis = aset.get("jenis")
     asset_lokasi = aset.get("lokasi")
+    nilai_risiko_asset = aset.get("nilai_risiko")
 
     # asset_subkategori_id = aset.get("asset_barang", {}).get("sub_kategori", {}).get("id")
     subkategori_nama = await fetch_subkategori_name(asset_subkategori_id)
@@ -554,6 +555,7 @@ async def create_public_report(
         opd_id_asset=opd_id_value,
         opd_id_tickets=opd_id_value, 
         asset_id=asset_id,
+        nilai_risiko_asset=aset.get("nilai_risiko"),
         kode_bmd_asset=asset_kode_bmd,
         nomor_seri_asset=asset_nomor_seri,
         nama_asset=asset_nama,

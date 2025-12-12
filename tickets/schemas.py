@@ -161,6 +161,7 @@ class AssignTeknisiSchema(BaseModel):
     teknisi_id: UUID
     pengerjaan_awal: date
     pengerjaan_akhir: date
+    incident_repeat_flag: bool = False
 
 class WarRoomCreate(BaseModel):
     ticket_id: UUID
@@ -179,6 +180,28 @@ class ServiceRequestCreate(BaseModel):
     subkategori_id: int
     metadata: Optional[dict] = None
 
+# class RFCIncidentRepeatSchema(BaseModel):
+#     judul_perubahan: str
+#     kategori_aset: str
+#     id_aset: int
+#     deskripsi_aset: str
+#     alasan_perubahan: str
+#     dampak_perubahan: str
+#     dampak_jika_tidak: str
+#     biaya_estimasi: int
+#     nama_pemohon: str
+#     opd_pemohon: str
+#     risk_score_aset: int = 0
+
+
+class RFCIncidentRepeatSchema(BaseModel):
+    judul_perubahan: str
+    id_aset: int
+    deskripsi_aset: str 
+    alasan_perubahan: str
+    dampak_perubahan: str
+    dampak_jika_tidak: str
+    biaya_estimasi: int
 
 
 # class TicketTrackResponse(BaseModel):
