@@ -203,6 +203,16 @@ class RFCIncidentRepeatSchema(BaseModel):
     dampak_jika_tidak: str
     biaya_estimasi: int
 
+class RFCChangeRequestSchema(BaseModel):
+    ticket_id: UUID               
+    judul_perubahan: str
+    id_aset: int
+    deskripsi_aset: str
+    alasan_perubahan: str
+    dampak_perubahan: str
+    dampak_jika_tidak: str
+    biaya_estimasi: int
+
 
 # class TicketTrackResponse(BaseModel):
 #     ticket_id: UUID 

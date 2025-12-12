@@ -193,6 +193,8 @@ class RFCChangeRequest(Base):
     nama_pemohon = Column(String(255))
     opd_pemohon = Column(String(255))
     risk_score_aset = Column(Integer)
+    trace_rfc_id = Column(Integer, nullable=True)
+
 
     status = Column(String(50), default="pending")
     approved_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
@@ -221,6 +223,7 @@ class RFCIncidentRepeat(Base):
     nama_pemohon = Column(String(255))
     opd_pemohon = Column(String(255))
     risk_score_aset = Column(Integer)
+    trace_rfc_id = Column(Integer, nullable=True)
 
     dibuat_oleh = Column(UUID(as_uuid=True), ForeignKey("users.id"))  # seksi_id
     created_at = Column(DateTime, server_default=func.now())
