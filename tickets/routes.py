@@ -637,21 +637,42 @@ async def create_public_report(
 
     db.commit()
 
+    opd = db.query(Dinas).filter(Dinas.id == opd_id_value).first()
+    opd_nama = opd.nama if opd else None
+
+
     return {
         "message": "Laporan berhasil dibuat",
-        "ticket_id": str(ticket_uuid),
-        "ticket_code": new_ticket.ticket_code, 
-        "title": new_ticket.title,
-        "jenis_layanan": new_ticket.request_type,
-        "opd_tujuan": new_ticket.opd_id_tickets,
-        "created_at": new_ticket.created_at,
-        "lokasi_kejadian": new_ticket.lokasi_kejadian,
-        "status_ticket_pengguna": new_ticket.status_ticket_pengguna,
-
-
-        "status": "Open",
-        "asset": aset,
-        # "opd_aset": opd_aset,
+        "ticket": {
+            "ticket_id": str(new_ticket.ticket_id),
+            "ticket_code": new_ticket.ticket_code,
+            "title": new_ticket.title,
+            "description": new_ticket.description,
+            "expected_resolution": new_ticket.expected_resolution,
+            "status": new_ticket.status,
+            "status_ticket_pengguna": new_ticket.status_ticket_pengguna,
+            "status_ticket_seksi": new_ticket.status_ticket_seksi,
+            "ticket_stage": new_ticket.ticket_stage,
+            "ticket_source": new_ticket.ticket_source,
+            "created_at": new_ticket.created_at,
+            "creates_id": str(new_ticket.creates_id),
+            "opd_id_asset": new_ticket.opd_id_asset,
+            "opd_id_tickets": new_ticket.opd_id_tickets,
+            "opd_nama": opd_nama,
+            "asset_id": new_ticket.asset_id,
+            "kode_bmd_asset": new_ticket.kode_bmd_asset,
+            "nomor_seri_asset": new_ticket.nomor_seri_asset,
+            "nama_asset": new_ticket.nama_asset,
+            "kategori_asset": new_ticket.kategori_asset,
+            "subkategori_id_asset": new_ticket.subkategori_id_asset,
+            "subkategori_nama_asset": new_ticket.subkategori_nama_asset,
+            "jenis_asset": new_ticket.jenis_asset,
+            "lokasi_asset": new_ticket.lokasi_asset,
+            "lokasi_kejadian": new_ticket.lokasi_kejadian,
+            "metadata_asset": new_ticket.metadata_asset,
+            "role_id_source": new_ticket.role_id_source,
+            "request_type": new_ticket.request_type
+        },
         "uploaded_files": uploaded_files
     }
 
@@ -792,17 +813,15 @@ async def create_public_report_masyarakat(
     return {
         "message": "Laporan berhasil dibuat",
         "ticket_id": str(ticket_uuid),
-        "ticket_code": new_ticket.ticket_code, 
-        "title": new_ticket.title,
+        "ticket_code": new_ticket.ticket_code,
+        "title": title,
+        "description": description,
         "jenis_layanan": new_ticket.request_type,
         "opd_tujuan": new_ticket.opd_id_tickets,
+        "opd_nama": dinas.nama if dinas else None,  # <-- nama OPD
         "created_at": new_ticket.created_at,
-        "lokasi_kejadian": new_ticket.lokasi_kejadian,
         "status_ticket_pengguna": new_ticket.status_ticket_pengguna,
-
-
         "status": "Open",
-        # "opd_aset": opd_aset,
         "uploaded_files": uploaded_files
     }
 
@@ -827,6 +846,10 @@ async def create_service_request(
 
     ticket_uuid = uuid4()
     request_type = "pengajuan_pelayanan"
+
+    opd_id = current_user.get("dinas_id")
+    opd = db.query(Dinas).filter(Dinas.id == opd_id).first()
+    opd_nama = opd.nama if opd else None
 
     latest_ticket = (
         db.query(models.Tickets)
@@ -924,10 +947,13 @@ async def create_service_request(
         "ticket_id": str(ticket_uuid),
         "ticket_code": ticket_code,
         "title": title,
-        "jenis_layanan": request_type,
+        "nama_asset": nama_asset,
         "lokasi_penempatan": lokasi_penempatan,
         "description": description,
         "expected_resolution": expected_resolution,
+        "jenis_layanan": request_type,
+        "opd_tujuan": opd_id,
+        "opd_nama": opd_nama,
         "uploaded_files": uploaded_files
     }
 
