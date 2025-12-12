@@ -294,6 +294,188 @@ async def update_ticket_status(db, ticket, new_status, updated_by):
 
 
 # TEKNISI
+@router.get("/notifications/teknisi")
+def get_teknisi_notifications(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user_universal)
+):
+    if current_user.get("role_name") != "teknisi":
+        raise HTTPException(403, "Hanya teknisi yang bisa melihat notifikasi ini")
+
+    teknisi_id = current_user.get("id")
+    now = datetime.utcnow()
+
+    # 1️⃣ Cek tiket assigned ke teknisi yang belum selesai
+    tickets = db.query(Tickets).filter(
+        Tickets.assigned_teknisi_id == teknisi_id,
+        Tickets.status != "selesai",
+        Tickets.pengerjaan_awal.isnot(None),
+        Tickets.pengerjaan_akhir.isnot(None)
+    ).all()
+
+    for ticket in tickets:
+        total_duration = (ticket.pengerjaan_akhir - ticket.pengerjaan_awal).total_seconds()
+        elapsed = (now - ticket.pengerjaan_awal).total_seconds()
+        if total_duration <= 0:
+            continue
+        progress = elapsed / total_duration
+
+        # 2️⃣ Jika sudah 75% progress tapi belum ada notif SLA, buat notif
+        if progress >= 0.75:
+            existing = db.query(Notifications).filter_by(
+                ticket_id=ticket.ticket_id,
+                user_id=teknisi_id,
+                status="SLA Warning"
+            ).first()
+            if not existing:
+                db.add(Notifications(
+                    user_id=teknisi_id,
+                    ticket_id=ticket.ticket_id,
+                    message=f"PERINGATAN: 75% waktu pengerjaan tiket {ticket.ticket_code} sudah lewat, tapi belum selesai!",
+                    status="SLA Warning",
+                    is_read=False,
+                    created_at=now
+                ))
+                db.commit()
+
+    # 3️⃣ Ambil semua notif teknisi
+    notifications = db.query(Notifications).filter_by(
+        user_id=teknisi_id
+    ).order_by(Notifications.created_at.desc()).all()
+
+    result = [{
+        "id": str(n.id),
+        "ticket_id": str(n.ticket_id),
+        "message": n.message,
+        "status": n.status,
+        "is_read": n.is_read,
+        "created_at": n.created_at
+    } for n in notifications]
+
+    # 4️⃣ Hitung total notif & unread
+    total = len(result)
+    unread = sum(1 for n in result if not n["is_read"])
+
+    return {
+        "total_notifications": total,
+        "unread_notifications": unread,
+        "notifications": result
+    }
+
+@router.get("/notifications/teknisi/{notification_id}")
+def get_teknisi_notification_by_id(
+    notification_id: str,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user_universal)
+):
+    if current_user.get("role_name") != "teknisi":
+        raise HTTPException(403, "Hanya teknisi yang bisa melihat notifikasi ini")
+
+    # Ambil notif berdasarkan ID dan user
+    notif = db.query(Notifications).filter(
+        Notifications.id == notification_id,
+        Notifications.user_id == current_user["id"]
+    ).first()
+
+    if not notif:
+        raise HTTPException(404, "Notifikasi tidak ditemukan")
+
+    # Ambil data tiket jika ada
+    ticket = None
+    if notif.ticket_id:
+        ticket = db.query(Tickets).filter(Tickets.ticket_id == notif.ticket_id).first()
+
+    result = {
+        "notification_id": str(notif.id),
+        "ticket_id": str(notif.ticket_id) if notif.ticket_id else None,
+        "ticket_code": ticket.ticket_code if ticket else None,
+        "message": notif.message,
+        "status": notif.status,
+        "is_read": notif.is_read,
+        "created_at": notif.created_at
+    }
+
+    return {"data": result}
+
+@router.patch("/notifications/teknisi/{notification_id}/read")
+def mark_teknisi_notification_read(
+    notification_id: str,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user_universal)
+):
+    if current_user.get("role_name") != "teknisi":
+        raise HTTPException(403, "Hanya teknisi yang bisa mengubah notifikasi")
+
+    notif = db.query(Notifications).filter(
+        Notifications.id == notification_id,
+        Notifications.user_id == current_user["id"]
+    ).first()
+
+    if not notif:
+        raise HTTPException(404, "Notifikasi tidak ditemukan")
+
+    notif.is_read = True
+    db.commit()
+    db.refresh(notif)
+
+    return {
+        "message": "Notifikasi berhasil ditandai sudah dibaca",
+        "notification_id": str(notif.id),
+        "is_read": notif.is_read
+    }
+
+@router.patch("/notifications/teknisi/read-all")
+def mark_all_teknisi_notifications_read(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user_universal)
+):
+    if current_user.get("role_name") != "teknisi":
+        raise HTTPException(403, "Hanya teknisi yang bisa mengubah notifikasi")
+
+    # Ambil semua notif yang belum dibaca
+    notifs = db.query(Notifications).filter(
+        Notifications.user_id == current_user["id"],
+        Notifications.is_read == False
+    ).all()
+
+    if not notifs:
+        return {"message": "Tidak ada notifikasi baru untuk ditandai sudah dibaca"}
+
+    for notif in notifs:
+        notif.is_read = True
+
+    db.commit()
+
+    return {
+        "message": f"{len(notifs)} notifikasi berhasil ditandai sudah dibaca"
+    }
+
+@router.delete("/notifications/teknisi/{notification_id}")
+def delete_teknisi_notification(
+    notification_id: str,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user_universal)
+):
+    if current_user.get("role_name") != "teknisi":
+        raise HTTPException(403, "Hanya teknisi yang bisa menghapus notifikasi")
+
+    notif = db.query(Notifications).filter(
+        Notifications.id == notification_id,
+        Notifications.user_id == current_user["id"]
+    ).first()
+
+    if not notif:
+        raise HTTPException(404, "Notifikasi tidak ditemukan")
+
+    db.delete(notif)
+    db.commit()
+
+    return {
+        "message": "Notifikasi berhasil dihapus",
+        "notification_id": str(notification_id)
+    }
+
+
 @router.get("/dashboard/teknisi/summary")
 def dashboard_teknisi_summary(
     db: Session = Depends(get_db),

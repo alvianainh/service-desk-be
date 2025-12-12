@@ -6,7 +6,7 @@ from . import models, schemas
 from auth.database import get_db
 from auth.auth import get_current_user, get_user_by_email, get_current_user_masyarakat, get_current_user_universal
 from tickets import models, schemas
-from tickets.models import Tickets, TicketAttachment, TicketCategories, TicketUpdates, TeknisiTags, TeknisiLevels, TicketRatings, WarRoom, WarRoomOPD, WarRoomSeksi, Notifications, TicketServiceRequests
+from tickets.models import Tickets, TicketAttachment, TicketCategories, TicketUpdates, TeknisiTags, TeknisiLevels, TicketRatings, WarRoom, WarRoomOPD, WarRoomSeksi, Notifications, TicketServiceRequests, Notifications
 from tickets.schemas import TicketCreateSchema, TicketResponseSchema, TicketCategorySchema, TicketForSeksiSchema, TicketTrackResponse, UpdatePriority, ManualPriority, RejectReasonSeksi, RejectReasonBidang, AssignTeknisiSchema
 import uuid
 from auth.models import Opd, Dinas, Roles, Users
@@ -325,6 +325,118 @@ def get_seksi_notifications(
         })
 
     return {"total": len(results), "data": results}
+
+@router.get("/notifications/seksi/{notification_id}")
+def get_seksi_notification_by_id(
+    notification_id: str,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user_universal)
+):
+    if current_user.get("role_name") != "seksi":
+        raise HTTPException(403, "Akses ditolak: hanya seksi yang dapat melihat notifikasi")
+
+    # Ambil notif berdasarkan ID dan user
+    notif = db.query(models.Notifications).filter(
+        models.Notifications.id == notification_id,
+        models.Notifications.user_id == current_user["id"]
+    ).first()
+
+    if not notif:
+        raise HTTPException(404, "Notifikasi tidak ditemukan")
+
+    # Ambil data tiket jika ada
+    ticket = None
+    if notif.ticket_id:
+        ticket = db.query(models.Tickets).filter(models.Tickets.ticket_id == notif.ticket_id).first()
+
+    result = {
+        "notification_id": str(notif.id),
+        "ticket_id": str(notif.ticket_id) if notif.ticket_id else None,
+        "ticket_code": ticket.ticket_code if ticket else None,
+        "message": notif.message,
+        "status": notif.status,
+        "is_read": notif.is_read,
+        "created_at": notif.created_at
+    }
+
+    return {"data": result}
+
+@router.patch("/notifications/seksi/{notification_id}/read")
+def mark_seksi_notification_read(
+    notification_id: str,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user_universal)
+):
+    if current_user.get("role_name") != "seksi":
+        raise HTTPException(403, "Akses ditolak: hanya seksi yang dapat mengubah notifikasi")
+
+    notif = db.query(models.Notifications).filter(
+        models.Notifications.id == notification_id,
+        models.Notifications.user_id == current_user["id"]
+    ).first()
+
+    if not notif:
+        raise HTTPException(404, "Notifikasi tidak ditemukan")
+
+    # Tandai sudah dibaca
+    notif.is_read = True
+    db.commit()
+    db.refresh(notif)
+
+    return {
+        "message": "Notifikasi berhasil ditandai sudah dibaca",
+        "notification_id": str(notif.id),
+        "is_read": notif.is_read
+    }
+
+@router.patch("/notifications/seksi/read-all")
+def mark_all_seksi_notifications_read(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user_universal)
+):
+    if current_user.get("role_name") != "seksi":
+        raise HTTPException(403, "Akses ditolak: hanya seksi yang dapat mengubah notifikasi")
+
+    # Ambil semua notif yang belum dibaca
+    notifs = db.query(models.Notifications).filter(
+        models.Notifications.user_id == current_user["id"],
+        models.Notifications.is_read == False
+    ).all()
+
+    if not notifs:
+        return {"message": "Tidak ada notifikasi baru untuk ditandai sudah dibaca"}
+
+    for notif in notifs:
+        notif.is_read = True
+
+    db.commit()
+
+    return {
+        "message": f"{len(notifs)} notifikasi berhasil ditandai sudah dibaca"
+    }
+
+@router.delete("/notifications/seksi/{notification_id}")
+def delete_seksi_notification(
+    notification_id: str,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user_universal)
+):
+    if current_user.get("role_name") != "seksi":
+        raise HTTPException(403, "Akses ditolak: hanya seksi yang dapat menghapus notifikasi")
+
+    notif = db.query(models.Notifications).filter(
+        models.Notifications.id == notification_id,
+        models.Notifications.user_id == current_user["id"]
+    ).first()
+
+    if not notif:
+        raise HTTPException(404, "Notifikasi tidak ditemukan")
+
+    db.delete(notif)
+    db.commit()
+
+    return {"message": "Notifikasi berhasil dihapus", "notification_id": str(notification_id)}
+
 
 
 @router.get("/dashboard/seksi")
@@ -833,6 +945,26 @@ async def update_ticket_priority(
     # db.commit()
     # db.refresh(ticket)
 
+    # ==== notif ke bidang OPD tiket ====
+    bidang_users = (
+        db.query(Users)
+        .join(Roles)
+        .filter(Roles.role_name == "bidang", Users.opd_id == ticket.opd_id_tickets)
+        .all()
+    )
+
+    for bidang in bidang_users:
+        db.add(models.Notifications(
+            user_id=bidang.id,
+            ticket_id=ticket.ticket_id,
+            message=f"Tiket {ticket.ticket_code} siap diverifikasi bidang (prioritas: {ticket.priority})",
+            status="Tiket Siap Diverifikasi",
+            is_read=False,
+            created_at=datetime.utcnow()
+        ))
+
+    db.commit()
+
     return {
         "message": "Prioritas tiket berhasil ditetapkan",
         "ticket_id": ticket_id,
@@ -932,6 +1064,28 @@ async def set_priority_masyarakat(
         updated_by=current_user["id"]
     )
 
+
+    # ==== notif ke bidang OPD tiket ====
+    bidang_users = (
+        db.query(Users)
+        .join(Roles)
+        .filter(Roles.role_name == "bidang", Users.opd_id == ticket.opd_id_tickets)
+        .all()
+    )
+
+    for bidang in bidang_users:
+        db.add(models.Notifications(
+            user_id=bidang.id,
+            ticket_id=ticket.ticket_id,
+            message=f"Tiket {ticket.ticket_code} siap diverifikasi bidang (prioritas: {ticket.priority})",
+            status="Tiket Siap Diverifikasi",
+            is_read=False,
+            created_at=datetime.utcnow()
+        ))
+
+    db.commit()
+
+
     return {
         "message": "Prioritas tiket masyarakat berhasil ditetapkan",
         "ticket_id": ticket_id,
@@ -1021,6 +1175,26 @@ async def set_priority_pengajuan_pelayanan(
         new_status="Proses Verifikasi",
         updated_by=current_user["id"]
     )
+
+    # ==== notif ke bidang OPD tiket ====
+    bidang_users = (
+        db.query(Users)
+        .join(Roles)
+        .filter(Roles.role_name == "bidang", Users.opd_id == ticket.opd_id_tickets)
+        .all()
+    )
+
+    for bidang in bidang_users:
+        db.add(models.Notifications(
+            user_id=bidang.id,
+            ticket_id=ticket.ticket_id,
+            message=f"Tiket {ticket.ticket_code} siap diverifikasi bidang (prioritas: {ticket.priority})",
+            status="Tiket Siap Diverifikasi",
+            is_read=False,
+            created_at=datetime.utcnow()
+        ))
+
+    db.commit()
 
     return {
         "message": "Prioritas tiket pengajuan pelayanan berhasil ditetapkan",
@@ -1582,6 +1756,18 @@ async def assign_teknisi(
         new_status="Proses Penugasan Teknisi",
         updated_by=current_user["id"]
     )
+
+    # ==== notif ke teknisi yang diassign ====
+    db.add(models.Notifications(
+        user_id=teknisi.id,
+        ticket_id=ticket.ticket_id,
+        message=f"Tiket {ticket.ticket_code} telah diassign ke Anda untuk diproses",
+        status="Tiket Baru",
+        is_read=False,
+        created_at=datetime.utcnow()
+    ))
+    db.commit()
+
 
     return {"message": "Teknisi berhasil diassign", "ticket_id": ticket_id}
 

@@ -6,7 +6,7 @@ from . import models, schemas
 from auth.database import get_db
 from auth.auth import get_current_user, get_user_by_email, get_current_user_masyarakat, get_current_user_universal
 from tickets import models, schemas
-from tickets.models import Tickets, TicketAttachment, TicketCategories, TicketUpdates, TicketHistory, TicketServiceRequests
+from tickets.models import Tickets, TicketAttachment, TicketCategories, TicketUpdates, TicketHistory, TicketServiceRequests, Notifications
 from tickets.schemas import TicketCreateSchema, TicketResponseSchema, TicketCategorySchema, TicketForSeksiSchema, TicketTrackResponse, UpdatePriority, ManualPriority, RejectReasonSeksi, RejectReasonBidang
 import uuid
 from auth.models import Opd, Dinas, Roles, Users
@@ -216,6 +216,181 @@ async def get_area_dampak(current_user: dict = Depends(get_current_user_universa
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/notifications/bidang")
+def get_bidang_notifications(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user_universal)
+):
+    if current_user.get("role_name") != "bidang":
+        raise HTTPException(
+            status_code=403,
+            detail="Akses ditolak: hanya bidang yang dapat melihat notifikasi ini"
+        )
+
+    opd_id = current_user.get("dinas_id")
+    user_id = current_user.get("id")
+
+    # Query notifikasi yang terkait tiket verified by seksi
+    notifications_query = (
+        db.query(models.Notifications)
+        .join(models.Tickets, models.Notifications.ticket_id == models.Tickets.ticket_id)
+        .filter(
+            Notifications.user_id == user_id,
+            models.Tickets.status == "verified by seksi",
+            models.Tickets.opd_id_tickets == opd_id
+        )
+        .order_by(Notifications.created_at.desc())
+    )
+
+    notifications = notifications_query.all()
+    total_notifications = notifications_query.count()
+
+    result = []
+    for notif in notifications:
+        result.append({
+            "id": str(notif.id),
+            "ticket_id": str(notif.ticket_id),
+            "message": notif.message,
+            "status": notif.status,
+            "is_read": notif.is_read,
+            "created_at": notif.created_at
+        })
+
+    return {
+        "total_notifications": total_notifications,
+        "notifications": result
+    }
+
+@router.get("/notifications/bidang/{notification_id}")
+def get_bidang_notification_by_id(
+    notification_id: str,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user_universal)
+):
+    if current_user.get("role_name") != "bidang":
+        raise HTTPException(
+            status_code=403,
+            detail="Akses ditolak: hanya bidang yang dapat melihat notifikasi ini"
+        )
+
+    opd_id = current_user.get("dinas_id")
+    user_id = current_user.get("id")
+
+    # Ambil notif berdasarkan ID, user, dan tiket yang verified by seksi & sesuai opd
+    notif = (
+        db.query(models.Notifications)
+        .join(models.Tickets, models.Notifications.ticket_id == models.Tickets.ticket_id)
+        .filter(
+            Notifications.id == notification_id,
+            Notifications.user_id == user_id,
+            models.Tickets.status == "verified by seksi",
+            models.Tickets.opd_id_tickets == opd_id
+        )
+        .first()
+    )
+
+    if not notif:
+        raise HTTPException(404, "Notifikasi tidak ditemukan")
+
+    result = {
+        "notification_id": str(notif.id),
+        "ticket_id": str(notif.ticket_id),
+        "message": notif.message,
+        "status": notif.status,
+        "is_read": notif.is_read,
+        "created_at": notif.created_at
+    }
+
+    return {"data": result}
+
+@router.patch("/notifications/bidang/{notification_id}/read")
+def mark_bidang_notification_read(
+    notification_id: str,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user_universal)
+):
+    if current_user.get("role_name") != "bidang":
+        raise HTTPException(403, "Hanya bidang yang bisa mengubah notifikasi")
+
+    notif = db.query(models.Notifications).filter(
+        models.Notifications.id == notification_id,
+        models.Notifications.user_id == current_user["id"]
+    ).first()
+
+    if not notif:
+        raise HTTPException(404, "Notifikasi tidak ditemukan")
+
+    notif.is_read = True
+    db.commit()
+    db.refresh(notif)
+
+    return {
+        "message": "Notifikasi berhasil ditandai sudah dibaca",
+        "notification_id": str(notif.id),
+        "is_read": notif.is_read
+    }
+
+@router.patch("/notifications/bidang/read-all")
+def mark_all_bidang_notifications_read(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user_universal)
+):
+    if current_user.get("role_name") != "bidang":
+        raise HTTPException(403, "Hanya bidang yang bisa mengubah notifikasi")
+
+    # Ambil semua notif yang belum dibaca
+    notifs = db.query(models.Notifications).join(
+        models.Tickets, models.Notifications.ticket_id == models.Tickets.ticket_id
+    ).filter(
+        models.Notifications.user_id == current_user["id"],
+        models.Notifications.is_read == False,
+        models.Tickets.status == "verified by seksi",
+        models.Tickets.opd_id_tickets == current_user["dinas_id"]
+    ).all()
+
+    if not notifs:
+        return {"message": "Tidak ada notifikasi baru untuk ditandai sudah dibaca"}
+
+    for notif in notifs:
+        notif.is_read = True
+
+    db.commit()
+
+    return {
+        "message": f"{len(notifs)} notifikasi berhasil ditandai sudah dibaca"
+    }
+
+@router.delete("/notifications/bidang/{notification_id}")
+def delete_bidang_notification(
+    notification_id: str,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user_universal)
+):
+    if current_user.get("role_name") != "bidang":
+        raise HTTPException(403, "Hanya bidang yang bisa menghapus notifikasi")
+
+    notif = db.query(models.Notifications).join(
+        models.Tickets, models.Notifications.ticket_id == models.Tickets.ticket_id
+    ).filter(
+        models.Notifications.id == notification_id,
+        models.Notifications.user_id == current_user["id"],
+        models.Tickets.status == "verified by seksi",
+        models.Tickets.opd_id_tickets == current_user["dinas_id"]
+    ).first()
+
+    if not notif:
+        raise HTTPException(404, "Notifikasi tidak ditemukan")
+
+    db.delete(notif)
+    db.commit()
+
+    return {
+        "message": "Notifikasi berhasil dihapus",
+        "notification_id": str(notification_id)
+    }
+
+
 
 @router.get("/dashboard/bidang")
 def get_dashboard_bidang(
