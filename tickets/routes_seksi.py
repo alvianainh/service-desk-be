@@ -294,8 +294,39 @@ async def update_ticket_status(db, ticket, new_status, updated_by):
     asyncio.create_task(push_notification(payload))
 
 
+
 #SEKSI
-#TAMBAHIN PENGAJUAN PELAYANAN
+@router.get("/notifications/seksi")
+def get_seksi_notifications(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user_universal)
+):
+    if current_user.get("role_name") != "seksi":
+        raise HTTPException(403, "Akses ditolak: hanya seksi yang dapat melihat notifikasi")
+
+    notifications = (
+        db.query(models.Notifications)
+        .filter(models.Notifications.user_id == current_user["id"])
+        .order_by(models.Notifications.created_at.desc())
+        .all()
+    )
+
+    results = []
+    for n in notifications:
+        ticket = db.query(models.Tickets).filter(models.Tickets.ticket_id == n.ticket_id).first()
+        results.append({
+            "notification_id": str(n.id),
+            "ticket_id": str(n.ticket_id) if n.ticket_id else None,
+            "ticket_code": ticket.ticket_code if ticket else None,
+            "message": n.message,
+            "status": n.status,
+            "is_read": n.is_read,
+            "created_at": n.created_at
+        })
+
+    return {"total": len(results), "data": results}
+
+
 @router.get("/dashboard/seksi")
 def get_dashboard_seksi(
     db: Session = Depends(get_db),
@@ -958,7 +989,7 @@ async def set_priority_pengajuan_pelayanan(
             f"Tiket sudah memiliki prioritas '{ticket.priority}' dan tidak bisa diubah lagi."
         )
 
-    valid_priorities = ["low", "medium", "high", "critical"]
+    valid_priorities = ["low", "medium", "high"]
     if payload.priority.lower() not in valid_priorities:
         raise HTTPException(
             400,
@@ -1498,7 +1529,11 @@ async def assign_teknisi(
             detail="Tiket ini sudah pernah di-assign ke teknisi. Tidak boleh assign ulang."
         )
 
-    if ticket.status != "verified by bidang":
+    # Kondisi khusus untuk tiket reopen
+    if not (
+        ticket.status == "verified by bidang" 
+        or (ticket.status == "Reopen" and ticket.verified_bidang_id is not None)
+    ):
         raise HTTPException(status_code=400, detail="Ticket belum diverifikasi bidang")
 
     teknisi = db.query(Users).filter(Users.id == payload.teknisi_id).first()
@@ -1507,7 +1542,6 @@ async def assign_teknisi(
 
     if teknisi.role_id != 6:
         raise HTTPException(status_code=400, detail="User ini bukan teknisi")
-
 
     if teknisi.opd_id != current_user.get("dinas_id"):
         raise HTTPException(status_code=403, detail="Teknisi bukan dari OPD yang sama")
@@ -1530,7 +1564,6 @@ async def assign_teknisi(
 
     teknisi.teknisi_kuota_terpakai += 1
 
-
     db.commit()
     db.refresh(ticket)
 
@@ -1540,7 +1573,7 @@ async def assign_teknisi(
         old_status=old_status,
         new_status=ticket.status, 
         updated_by=UUID(current_user["id"]),
-        extra={"notes": "Tiket dibuat melalui pelaporan online"}
+        extra={"notes": "Tiket dibuat melalui pelaporan online / reopen"}
     )
 
     await update_ticket_status(

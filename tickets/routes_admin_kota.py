@@ -1821,7 +1821,6 @@ def get_all_teknisi_tickets_admin_kota(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user_universal)
 ):
-
     # Validasi role admin kota
     if current_user.get("role_name") != "diskominfo":
         raise HTTPException(
@@ -1837,22 +1836,30 @@ def get_all_teknisi_tickets_admin_kota(
         models.Tickets.status.in_(allowed_status)
     )
 
-    # Filter OPD jika diberikan
     if opd_id:
         query = query.filter(models.Tickets.opd_id_tickets == opd_id)
-
-    # Filter request_type jika diberikan
     if request_type:
         query = query.filter(models.Tickets.request_type == request_type)
 
-    # Sorting by opd_id naik, created_at turun
     tickets = query.order_by(models.Tickets.opd_id_tickets.asc(), models.Tickets.created_at.desc()).all()
 
     result = []
-
     for t in tickets:
         teknisi_user = db.query(Users).filter(Users.id == t.assigned_teknisi_id).first()
         attachments = t.attachments if hasattr(t, "attachments") else []
+
+        # ===== Hitung status_sla =====
+        status_sla = "sesuai sla"
+        if t.pengerjaan_awal and t.pengerjaan_akhir:
+            now = datetime.utcnow()
+            total_duration = t.pengerjaan_akhir - t.pengerjaan_awal
+            elapsed = now - t.pengerjaan_awal
+            progress = elapsed / total_duration if total_duration.total_seconds() > 0 else 0
+
+            if now > t.pengerjaan_akhir and t.status != "selesai":
+                status_sla = "keterlambatan sla"
+            elif progress >= 0.75 and t.status != "selesai":
+                status_sla = "peringatan sla"
 
         result.append({
             "ticket_id": str(t.ticket_id),
@@ -1870,6 +1877,7 @@ def get_all_teknisi_tickets_admin_kota(
             "pengerjaan_akhir": t.pengerjaan_akhir,
             "pengerjaan_awal_teknisi": t.pengerjaan_awal_teknisi,
             "pengerjaan_akhir_teknisi": t.pengerjaan_akhir_teknisi,
+            "status_sla": status_sla,  # tambahkan field SLA
 
             "assigned_teknisi": {
                 "id": teknisi_user.id if teknisi_user else None,

@@ -762,8 +762,6 @@ async def reopen_ticket(
 
     old_status = ticket.status
 
-    ticket.verified_seksi_id = None
-    ticket.verified_bidang_id = None
     ticket.status_ticket_seksi = "Draft"
     ticket.assigned_teknisi_id = None
     ticket.status_ticket_teknisi = "Reopen"

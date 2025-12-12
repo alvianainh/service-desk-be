@@ -633,6 +633,25 @@ async def teknisi_start_processing(
         updated_by=current_user["id"]
     )
 
+    seksi_users = (
+        db.query(Users)
+        .join(Roles)
+        .filter(Roles.role_name == "seksi", Users.opd_id == teknisi_opd_id)
+        .all()
+    )
+
+    for seksi in seksi_users:
+        db.add(models.Notifications(
+            user_id=seksi.id,
+            ticket_id=ticket.ticket_id,
+            message=f"Tiket {ticket.ticket_code} sedang diproses oleh teknisi",
+            status="Tiket Diproses Teknisi",
+            is_read=False,
+            created_at=datetime.utcnow()
+        ))
+
+    db.commit()
+
     return {
         "message": "Tiket berhasil diperbarui menjadi diproses oleh teknisi.",
         "ticket_id": str(ticket.ticket_id),
@@ -724,6 +743,26 @@ async def teknisi_complete_ticket(
         new_status="Selesai",
         updated_by=current_user["id"]
     )
+
+    # ==== notif seksi OPD teknisi ====
+    seksi_users = (
+        db.query(Users)
+        .join(Roles)
+        .filter(Roles.role_name == "seksi", Users.opd_id == teknisi_opd_id)
+        .all()
+    )
+
+    for seksi in seksi_users:
+        db.add(models.Notifications(
+            user_id=seksi.id,
+            ticket_id=ticket.ticket_id,
+            message=f"Tiket {ticket.ticket_code} telah selesai diproses teknisi",
+            status="Tiket Selesai",
+            is_read=False,
+            created_at=datetime.utcnow()
+        ))
+
+    db.commit()
 
     return {
         "message": "Tiket berhasil diselesaikan oleh teknisi.",

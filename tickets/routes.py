@@ -480,8 +480,6 @@ async def get_all_subkategori():
             return data.get("data", []) 
 
 
-
-
 @router.post("/pelaporan-online")
 async def create_public_report(
     # id_aset_opd: int = Form(...),
@@ -618,6 +616,26 @@ async def create_public_report(
                     status_code=500,
                     detail=f"Gagal upload file {file.filename}: {str(e)}"
                 )
+        db.commit()
+
+    seksi_users = (
+        db.query(Users)
+        .join(Roles)  # join ke tabel Roles lewat relasi role
+        .filter(Roles.role_name == "seksi", Users.opd_id == opd_id_value)
+        .all()
+    )
+
+    for seksi in seksi_users:
+        db.add(models.Notifications(
+            user_id=seksi.id,
+            ticket_id=ticket_uuid,
+            message=f"Tiket baru masuk: {ticket_code} - {title}",
+            status="Tiket Masuk",
+            is_read=False,
+            created_at=datetime.utcnow()
+        ))
+
+    db.commit()
 
     return {
         "message": "Laporan berhasil dibuat",
@@ -751,6 +769,26 @@ async def create_public_report_masyarakat(
                 )
         db.commit()  
 
+    #notif seksi
+    seksi_users = (
+        db.query(Users)
+        .join(Roles)
+        .filter(Roles.role_name == "seksi", Users.opd_id == dinas.id)
+        .all()
+    )
+
+    for seksi in seksi_users:
+        db.add(models.Notifications(
+            user_id=seksi.id,
+            ticket_id=ticket_uuid,
+            message=f"Tiket baru masuk: {ticket_code} - {title}",
+            status="Tiket Masuk",
+            is_read=False,
+            created_at=datetime.utcnow()
+        ))
+
+    db.commit()
+
     return {
         "message": "Laporan berhasil dibuat",
         "ticket_id": str(ticket_uuid),
@@ -860,6 +898,26 @@ async def create_service_request(
                     status_code=500,
                     detail=f"Gagal upload file {file.filename}: {str(e)}"
                 )
+
+    #notif seksi
+    seksi_users = (
+        db.query(Users)
+        .join(Roles)
+        .filter(Roles.role_name == "seksi", Users.opd_id == current_user.get("dinas_id"))
+        .all()
+    )
+
+    for seksi in seksi_users:
+        db.add(models.Notifications(
+            user_id=seksi.id,
+            ticket_id=ticket_uuid,
+            message=f"Tiket baru masuk: {ticket_code} - {title}",
+            status="Tiket Masuk",
+            is_read=False,
+            created_at=datetime.utcnow()
+        ))
+
+    db.commit()
 
     return {
         "message": "Pengajuan pelayanan berhasil dibuat",

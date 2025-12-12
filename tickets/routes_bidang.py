@@ -546,7 +546,8 @@ async def verify_and_update_ticket_by_bidang(
             models.Tickets.ticket_id == ticket_id,
             models.Tickets.opd_id_tickets == opd_id,
             models.Tickets.status == "verified by seksi",
-            models.Tickets.request_type == "pelaporan_online"
+            models.Tickets.request_type == "pelaporan_online",
+            models.Tickets.ticket_source == "Pegawai",
         )
         .first()
     )
@@ -602,8 +603,98 @@ async def verify_and_update_ticket_by_bidang(
         extra={"notes": "Tiket diverifikasi dan bidang mengisi info tambahan"}
     )
 
+    seksi_users = (
+        db.query(Users)
+        .join(Roles)
+        .filter(Roles.role_name == "seksi", Users.opd_id == opd_id)
+        .all()
+    )
+
+    for seksi in seksi_users:
+        db.add(models.Notifications(
+            user_id=seksi.id,
+            ticket_id=ticket.ticket_id,
+            message=f"Tiket {ticket.ticket_code} telah diverifikasi bidang dan siap diproses",
+            status="Tiket Diverifikasi Bidang",
+            is_read=False,
+            created_at=datetime.utcnow()
+        ))
+
+    db.commit()
+
     return {"message": "Tiket berhasil diverifikasi oleh bidang dan info tambahan disimpan"}
 
+
+@router.patch("/tickets/bidang/verify/masyarakat/{ticket_id}")
+async def verify_ticket_masyarakat_by_bidang(
+    ticket_id: str,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user_universal)
+):
+    if current_user.get("role_name") != "bidang":
+        raise HTTPException(403, "Akses ditolak: hanya admin bidang")
+
+    opd_id = current_user.get("dinas_id")
+    bidang_id = current_user.get("id")
+
+
+    ticket = (
+        db.query(models.Tickets)
+        .filter(
+            models.Tickets.ticket_id == ticket_id,
+            models.Tickets.opd_id_tickets == opd_id,
+            models.Tickets.status == "verified by seksi",
+            models.Tickets.request_type == "pelaporan_online",
+            models.Tickets.ticket_source == "Masyarakat",
+        )
+        .first()
+    )
+
+    if not ticket:
+        raise HTTPException(404, "Tiket tidak valid untuk diverifikasi bidang")
+
+    old_status = ticket.status
+
+    ticket.status = "verified by bidang"
+    ticket.ticket_stage = "verified-bidang"
+    ticket.verified_bidang_id = bidang_id
+    ticket.status_ticket_seksi = "Draft"
+    ticket.updated_at = datetime.utcnow()
+
+    db.commit()
+
+
+    add_ticket_history(
+        db=db,
+        ticket=ticket,
+        old_status=old_status,
+        new_status=ticket.status,
+        updated_by=UUID(current_user["id"]),
+        extra={"notes": "Tiket masyarakat diverifikasi langsung oleh bidang"}
+    )
+
+    # notif ke seksi
+    seksi_users = (
+        db.query(Users)
+        .join(Roles)
+        .filter(Roles.role_name == "seksi", Users.opd_id == opd_id)
+        .all()
+    )
+
+    for seksi in seksi_users:
+        db.add(models.Notifications(
+            user_id=seksi.id,
+            ticket_id=ticket.ticket_id,
+            message=f"Tiket {ticket.ticket_code} sudah diverifikasi bidang dan siap diproses",
+            status="Tiket Diverifikasi Bidang",
+            is_read=False,
+            created_at=datetime.utcnow()
+        ))
+
+    db.commit()
+
+
+    return {"message": "Tiket masyarakat berhasil diverifikasi oleh bidang"}
 
 
 @router.patch("/tickets/bidang/verify-pengajuan-pelayanan/{ticket_id}")
@@ -649,8 +740,26 @@ async def verify_ticket_by_bidang_simple(
         old_status=old_status,
         new_status=ticket.status,
         updated_by=UUID(current_user["id"]),
-        extra={"notes": "Tiket diverifikasi bidang (simple endpoint)"}
+        extra={"notes": "Tiket diverifikasi bidang"}
     )
+    seksi_users = (
+        db.query(Users)
+        .join(Roles)
+        .filter(Roles.role_name == "seksi", Users.opd_id == opd_id)
+        .all()
+    )
+
+    for seksi in seksi_users:
+        db.add(models.Notifications(
+            user_id=seksi.id,
+            ticket_id=ticket.ticket_id,
+            message=f"Tiket {ticket.ticket_code} pengajuan pelayanan telah diverifikasi bidang dan siap diproses",
+            status="Tiket Diverifikasi Bidang",
+            is_read=False,
+            created_at=datetime.utcnow()
+        ))
+
+    db.commit()
 
     return {"message": "Tiket berhasil diverifikasi oleh bidang", "status": ticket.status}
 
@@ -1021,6 +1130,26 @@ def reject_by_bidang(
         updated_by=UUID(current_user["id"]),
         extra={"notes": "Tiket dibuat melalui pelaporan online"}
     )
+
+    # ==== notif ke seksi ====
+    seksi_users = (
+        db.query(Users)
+        .join(Roles)
+        .filter(Roles.role_name == "seksi", Users.opd_id == opd_id)
+        .all()
+    )
+
+    for seksi in seksi_users:
+        db.add(models.Notifications(
+            user_id=seksi.id,
+            ticket_id=ticket.ticket_id,
+            message=f"Tiket {ticket.ticket_code} direvisi oleh bidang: {payload.reason}",
+            status="Tiket Direvisi Bidang",
+            is_read=False,
+            created_at=datetime.utcnow()
+        ))
+
+    db.commit()
 
     return {"message": "Tiket berhasil ditolak oleh bidang", "reason": payload.reason}
 
