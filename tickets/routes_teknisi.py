@@ -1677,8 +1677,11 @@ def get_rfc_incident_repeat(
 
     for r in rfcs:
         status_trace = None
+        lampiran = None
+        rencana_implementasi = None
+        alasan_penolakan = None
+        rencana_rollback = None
 
-        # --- Fetch status dari TRACE ---
         if r.trace_rfc_id:
             try:
                 trace_res = requests.get(
@@ -1691,9 +1694,17 @@ def get_rfc_incident_repeat(
 
                 if trace_res.status_code == 200:
                     trace_data = trace_res.json().get("data", {})
-                    status_trace = trace_data.get("status")  # <--- ini status RFC
+                    status_trace = trace_data.get("status"),
+                    lampiran = trace_data.get("lampiran")
+                    rencana_implementasi = trace_data.get("rencana_implementasi")
+                    alasan_penolakan = trace_data.get("alasan_penolakan")
+                    rencana_rollback = trace_data.get("rencana_rollback") 
             except Exception:
-                status_trace = None  # biar ga error
+                status_trace = None
+                lampiran = None
+                rencana_implementasi = None
+                alasan_penolakan = None
+                rencana_rollback = None
 
         results.append({
             "local_rfc_id": str(r.id),
@@ -1710,7 +1721,11 @@ def get_rfc_incident_repeat(
             "opd_pemohon": r.opd_pemohon,
             "risk_score_aset": r.risk_score_aset,
             "created_at": r.created_at,
-            "status_trace": status_trace  # <--- status dari TRACE
+            "status_trace": status_trace,
+            "lampiran": lampiran,
+            "rencana_implementasi": rencana_implementasi,
+            "alasan_penolakan": alasan_penolakan,
+            "rencana_rollback": rencana_rollback
         })
 
     return {
