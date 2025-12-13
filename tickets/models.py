@@ -125,6 +125,7 @@ class Tickets(Base):
     rfc_required = Column(Boolean, default=False) 
     incident_repeat_flag = Column(Boolean, default=False)
     nilai_risiko_asset = Column(Integer, nullable=True)
+    trace_rfc_id = Column(Integer, nullable=True)
 
     # Relations
     creates_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"))

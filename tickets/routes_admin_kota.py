@@ -555,6 +555,15 @@ def get_completed_tickets_for_diskominfo_pegawai(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user_universal)
 ):
+
+    # allowed_roles = ["diskominfo", "superadmin", "admin_teknis"]  # daftar role yang diizinkan
+
+    # if current_user.get("role_name") not in allowed_roles:
+    #     raise HTTPException(
+    #         status_code=403,
+    #         detail=f"Akses ditolak: hanya role {', '.join(allowed_roles)} yang diperbolehkan."
+    #     )
+    
     if current_user.get("role_name") != "diskominfo":
         raise HTTPException(
             status_code=403,
@@ -1707,6 +1716,14 @@ def export_pengajuan_pelayanan_excel_kota(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user_universal)
 ):
+
+    allowed_roles = ["diskominfo", "superadmin", "admin_teknis"]  # daftar role yang diizinkan
+
+    if current_user.get("role_name") not in allowed_roles:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Akses ditolak: hanya role {', '.join(allowed_roles)} yang diperbolehkan."
+        )
 
     # Hanya admin kota
     if current_user.get("role_name") != "diskominfo":

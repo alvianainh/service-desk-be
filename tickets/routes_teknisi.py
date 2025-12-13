@@ -841,10 +841,12 @@ def get_ticket_detail_for_teknisi(
 #         "pengerjaan_awal": ticket.pengerjaan_awal
 #     }
 
+TRACE_BASE_URL = "https://trace-app.my.id"
+
 @router.put("/tickets/teknisi/{ticket_id}/process")
 async def teknisi_start_processing(
     ticket_id: str,
-    rfc_id: str | None = Query(default=None),  # <-- optional RFC ID
+    # rfc_id: str | None = Query(default=None),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user_universal)
 ):
@@ -853,218 +855,330 @@ async def teknisi_start_processing(
 
     teknisi_opd_id = current_user.get("dinas_id")
     teknisi_user_id = current_user.get("id")
-
     if not teknisi_opd_id:
         raise HTTPException(400, "User tidak memiliki OPD")
 
     ticket = db.query(models.Tickets).filter(models.Tickets.ticket_id == ticket_id).first()
     if not ticket:
         raise HTTPException(404, "Ticket tidak ditemukan")
-
     if ticket.opd_id_tickets != teknisi_opd_id:
         raise HTTPException(403, "Tiket ini bukan dari OPD teknisi")
-
     if str(ticket.assigned_teknisi_id) != str(teknisi_user_id):
         raise HTTPException(403, "Tiket tidak diassign ke teknisi ini")
-
     if ticket.status != "assigned to teknisi":
         raise HTTPException(400, "Tiket belum siap diproses oleh teknisi")
 
-    # --- Optional: handle RFC ---
+    trace_response = None
+    rfc_ok = True 
+
+    rfc_id = ticket.trace_rfc_id
+
     if rfc_id:
         rfc = db.query(RFCChangeRequest).filter(RFCChangeRequest.trace_rfc_id == rfc_id).first()
         if not rfc:
             raise HTTPException(404, "RFC TRACE tidak ditemukan")
-        # if rfc.status != "scheduled":
-        #     raise HTTPException(400, "RFC belum disetujui, tiket tidak bisa diproses")
-
-    old_status = ticket.status
-    ticket.status = "diproses"
-    ticket.status_ticket_pengguna = "proses pengerjaan teknisi"
-    ticket.status_ticket_seksi = "diproses"
-    ticket.status_ticket_teknisi = "diproses"
-    ticket.pengerjaan_awal_teknisi = datetime.utcnow()
-    ticket.pengerjaan_awal = datetime.utcnow()
-    db.commit()
-    db.refresh(ticket)
-
-    add_ticket_history(
-        db=db,
-        ticket=ticket,
-        old_status=old_status,
-        new_status=ticket.status,
-        updated_by=UUID(current_user["id"]),
-        extra={"notes": "Tiket dibuat melalui pelaporan online"}
-    )
-
-    await update_ticket_status(
-        db=db,
-        ticket=ticket,
-        new_status="Proses Pengerjaan Teknisi",
-        updated_by=current_user["id"]
-    )
-
-    # --- Notify seksi ---
-    seksi_users = (
-        db.query(Users)
-        .join(Roles)
-        .filter(Roles.role_name == "seksi", Users.opd_id == teknisi_opd_id)
-        .all()
-    )
-    for seksi in seksi_users:
-        db.add(models.Notifications(
-            user_id=seksi.id,
-            ticket_id=ticket.ticket_id,
-            message=f"Tiket {ticket.ticket_code} sedang diproses oleh teknisi",
-            status="Tiket Diproses Teknisi",
-            is_read=False,
-            created_at=datetime.utcnow()
-        ))
-    db.commit()
-
-    # --- Jika ada RFC, update ke TRACE ---
-    trace_response = None
-    if rfc_id:
+        # --- update ke TRACE ---
         token = current_user.get("access_token")
         try:
-            trace_res = requests.post(
-                f"{TRACE_BASE_URL}/api/change-managements/{rfc_id}/implemented",
-                headers={
-                    "Authorization": f"Bearer {token}",
-                    "accept": "application/json",
-                    "X-CSRF-TOKEN": ""
-                },
-                data=""
-            )
-            if trace_res.status_code in (200, 201):
-                trace_response = trace_res.json()
-            else:
-                trace_response = {"error": trace_res.text}
+            with requests.Session() as session:
+                trace_res = session.post(
+                    f"{TRACE_BASE_URL}/api/change-managements/{rfc_id}/implemented",
+                    headers={
+                        "Authorization": f"Bearer {token}",
+                        "accept": "application/json",
+                        "X-CSRF-TOKEN": "",
+                        "Content-Type": "application/json"
+                    },
+                    data="{}",
+                    timeout=10
+                )
+                if trace_res.status_code in (200, 201):
+                    trace_response = trace_res.json()
+                else:
+                    trace_response = {"error": trace_res.text}
+                    rfc_ok = False  # RFC gagal → jangan update status tiket
         except Exception as e:
             trace_response = {"error": str(e)}
+            rfc_ok = False  # RFC gagal → jangan update status tiket
+
+    # --- update internal DB hanya jika RFC berhasil atau ticket tanpa RFC ---
+    if rfc_ok:
+        old_status = ticket.status
+        ticket.status = "diproses"
+        ticket.status_ticket_pengguna = "proses pengerjaan teknisi"
+        ticket.status_ticket_seksi = "diproses"
+        ticket.status_ticket_teknisi = "diproses"
+        ticket.pengerjaan_awal_teknisi = datetime.utcnow()
+        ticket.pengerjaan_awal = datetime.utcnow()
+        db.commit()
+        db.refresh(ticket)
+
+        add_ticket_history(
+            db=db,
+            ticket=ticket,
+            old_status=old_status,
+            new_status=ticket.status,
+            updated_by=UUID(current_user["id"]),
+            extra={"notes": "Tiket dibuat melalui pelaporan online"}
+        )
+
+        await update_ticket_status(
+            db=db,
+            ticket=ticket,
+            new_status="Proses Pengerjaan Teknisi",
+            updated_by=current_user["id"]
+        )
+
+        # --- Notify seksi ---
+        seksi_users = (
+            db.query(Users)
+            .join(Roles)
+            .filter(Roles.role_name == "seksi", Users.opd_id == teknisi_opd_id)
+            .all()
+        )
+        for seksi in seksi_users:
+            db.add(models.Notifications(
+                user_id=seksi.id,
+                ticket_id=ticket.ticket_id,
+                message=f"Tiket {ticket.ticket_code} sedang diproses oleh teknisi",
+                status="Tiket Diproses Teknisi",
+                is_read=False,
+                created_at=datetime.utcnow()
+            ))
+        db.commit()
 
     return {
-        "message": "Tiket berhasil diperbarui menjadi diproses oleh teknisi.",
+        "message": "Tiket berhasil diperbarui menjadi diproses oleh teknisi." if rfc_ok else "Tiket tidak dapat diproses karena RFC TRACE gagal.",
         "ticket_id": str(ticket.ticket_id),
-        "status": ticket.status,
-        "status_ticket_pengguna": ticket.status_ticket_pengguna,
-        "status_ticket_seksi": ticket.status_ticket_seksi,
-        "status_ticket_teknisi": ticket.status_ticket_teknisi,
-        "pengerjaan_awal": ticket.pengerjaan_awal,
-        "trace_response": trace_response  # <-- null kalau bukan RFC
+        "trace_response": trace_response,
+        "status_updated": rfc_ok
     }
 
 
 @router.put("/tickets/teknisi/{ticket_id}/complete")
 async def teknisi_complete_ticket(
     ticket_id: str,
+    # rfc_id: str | None = Query(default=None),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user_universal)
 ):
-
     if current_user.get("role_name") != "teknisi":
-        raise HTTPException(
-            status_code=403,
-            detail="Akses ditolak: hanya teknisi yang dapat menyelesaikan tiket."
-        )
+        raise HTTPException(403, "Akses ditolak: hanya teknisi yang dapat menyelesaikan tiket.")
 
     teknisi_opd_id = current_user.get("dinas_id")
     teknisi_user_id = current_user.get("id")
-
     if not teknisi_opd_id:
-        raise HTTPException(status_code=400, detail="User tidak memiliki OPD.")
+        raise HTTPException(400, "User tidak memiliki OPD")
 
-    ticket = (
-        db.query(models.Tickets)
-        .filter(models.Tickets.ticket_id == ticket_id)
-        .first()
-    )
-
+    ticket = db.query(models.Tickets).filter(models.Tickets.ticket_id == ticket_id).first()
     if not ticket:
-        raise HTTPException(status_code=404, detail="Ticket tidak ditemukan.")
-
-    old_status = ticket.status
-
+        raise HTTPException(404, "Ticket tidak ditemukan")
     if ticket.opd_id_tickets != teknisi_opd_id:
-        raise HTTPException(
-            status_code=403,
-            detail="Akses ditolak: Tiket ini bukan dari OPD teknisi."
-        )
-
+        raise HTTPException(403, "Tiket ini bukan dari OPD teknisi")
     if str(ticket.assigned_teknisi_id) != str(teknisi_user_id):
-        raise HTTPException(
-            status_code=403,
-            detail="Akses ditolak: Tiket tidak diassign ke teknisi ini."
-        )
-
+        raise HTTPException(403, "Tiket tidak diassign ke teknisi ini")
     if ticket.status != "diproses":
-        raise HTTPException(
-            status_code=400,
-            detail="Tiket belum bisa diselesaikan karena tidak dalam status 'diproses'."
+        raise HTTPException(400, "Tiket belum bisa diselesaikan karena status bukan 'diproses'")
+
+    trace_response = None
+    rfc_ok = True  
+
+    rfc_id = ticket.trace_rfc_id
+
+    if rfc_id:
+        token = current_user.get("access_token")
+        try:
+            with requests.Session() as session:
+                trace_res = session.post(
+                    f"{TRACE_BASE_URL}/api/change-managements/{rfc_id}/completed",
+                    headers={
+                        "Authorization": f"Bearer {token}",
+                        "accept": "application/json",
+                        "X-CSRF-TOKEN": "",
+                        "Content-Type": "application/json"
+                    },
+                    data="{}",
+                    timeout=10
+                )
+                if trace_res.status_code in (200, 201):
+                    trace_response = trace_res.json()
+                else:
+                    trace_response = {"error": trace_res.text}
+                    rfc_ok = False  # RFC gagal → jangan update status tiket
+        except Exception as e:
+            trace_response = {"error": str(e)}
+            rfc_ok = False  # RFC gagal → jangan update status tiket
+
+    # --- update internal DB hanya jika RFC berhasil atau ticket tanpa RFC ---
+    if rfc_ok:
+        old_status = ticket.status
+        ticket.status = "selesai"
+        ticket.status_ticket_pengguna = "selesai"
+        ticket.status_ticket_seksi = "normal"
+        ticket.status_ticket_teknisi = "selesai"
+        ticket.pengerjaan_akhir_teknisi = datetime.utcnow()
+
+        # update kuota teknisi
+        teknisi = db.query(Users).filter(Users.id == teknisi_user_id).first()
+        if teknisi:
+            teknisi.teknisi_kuota_terpakai = max(teknisi.teknisi_kuota_terpakai - 1, 0)
+
+        db.commit()
+        db.refresh(ticket)
+
+        add_ticket_history(
+            db=db,
+            ticket=ticket,
+            old_status=old_status,
+            new_status=ticket.status,
+            updated_by=UUID(current_user["id"]),
+            extra={"notes": "Tiket dibuat melalui pelaporan online"}
         )
 
-    ticket.status = "selesai"
-    ticket.status_ticket_pengguna = "selesai"
-    ticket.status_ticket_seksi = "normal"
-    ticket.status_ticket_teknisi = "selesai"
-    ticket.pengerjaan_akhir_teknisi = datetime.utcnow()
+        await update_ticket_status(
+            db=db,
+            ticket=ticket,
+            new_status="Selesai",
+            updated_by=current_user["id"]
+        )
 
-
-    teknisi = db.query(Users).filter(Users.id == teknisi_user_id).first()
-
-    if teknisi:
-        teknisi.teknisi_kuota_terpakai -= 1
-        if teknisi.teknisi_kuota_terpakai < 0:
-            teknisi.teknisi_kuota_terpakai = 0
-
-    db.commit()
-    db.refresh(ticket)
-
-    add_ticket_history(
-        db=db,
-        ticket=ticket,
-        old_status=old_status,
-        new_status=ticket.status, 
-        updated_by=UUID(current_user["id"]),
-        extra={"notes": "Tiket dibuat melalui pelaporan online"}
-    )
-
-    await update_ticket_status(
-        db=db,
-        ticket=ticket,
-        new_status="Selesai",
-        updated_by=current_user["id"]
-    )
-
-    # ==== notif seksi OPD teknisi ====
-    seksi_users = (
-        db.query(Users)
-        .join(Roles)
-        .filter(Roles.role_name == "seksi", Users.opd_id == teknisi_opd_id)
-        .all()
-    )
-
-    for seksi in seksi_users:
-        db.add(models.Notifications(
-            user_id=seksi.id,
-            ticket_id=ticket.ticket_id,
-            message=f"Tiket {ticket.ticket_code} telah selesai diproses teknisi",
-            status="Tiket Selesai",
-            is_read=False,
-            created_at=datetime.utcnow()
-        ))
-
-    db.commit()
+        # notif seksi
+        seksi_users = (
+            db.query(Users)
+            .join(Roles)
+            .filter(Roles.role_name == "seksi", Users.opd_id == teknisi_opd_id)
+            .all()
+        )
+        for seksi in seksi_users:
+            db.add(models.Notifications(
+                user_id=seksi.id,
+                ticket_id=ticket.ticket_id,
+                message=f"Tiket {ticket.ticket_code} telah selesai diproses teknisi",
+                status="Tiket Selesai",
+                is_read=False,
+                created_at=datetime.utcnow()
+            ))
+        db.commit()
 
     return {
-        "message": "Tiket berhasil diselesaikan oleh teknisi.",
+        "message": "Tiket berhasil diselesaikan oleh teknisi." if rfc_ok else "Tiket tidak dapat diselesaikan karena RFC TRACE gagal.",
         "ticket_id": str(ticket.ticket_id),
-        "status": ticket.status,
-        "status_ticket_pengguna": ticket.status_ticket_pengguna,
-        "status_ticket_seksi": ticket.status_ticket_seksi,
-        "status_ticket_teknisi": ticket.status_ticket_teknisi,
-        "pengerjaan_akhir_teknisi": ticket.pengerjaan_akhir_teknisi
+        "trace_response": trace_response,
+        "status_updated": rfc_ok
     }
+
+
+
+# @router.put("/tickets/teknisi/{ticket_id}/complete")
+# async def teknisi_complete_ticket(
+#     ticket_id: str,
+#     db: Session = Depends(get_db),
+#     current_user: dict = Depends(get_current_user_universal)
+# ):
+
+#     if current_user.get("role_name") != "teknisi":
+#         raise HTTPException(
+#             status_code=403,
+#             detail="Akses ditolak: hanya teknisi yang dapat menyelesaikan tiket."
+#         )
+
+#     teknisi_opd_id = current_user.get("dinas_id")
+#     teknisi_user_id = current_user.get("id")
+
+#     if not teknisi_opd_id:
+#         raise HTTPException(status_code=400, detail="User tidak memiliki OPD.")
+
+#     ticket = (
+#         db.query(models.Tickets)
+#         .filter(models.Tickets.ticket_id == ticket_id)
+#         .first()
+#     )
+
+#     if not ticket:
+#         raise HTTPException(status_code=404, detail="Ticket tidak ditemukan.")
+
+#     old_status = ticket.status
+
+#     if ticket.opd_id_tickets != teknisi_opd_id:
+#         raise HTTPException(
+#             status_code=403,
+#             detail="Akses ditolak: Tiket ini bukan dari OPD teknisi."
+#         )
+
+#     if str(ticket.assigned_teknisi_id) != str(teknisi_user_id):
+#         raise HTTPException(
+#             status_code=403,
+#             detail="Akses ditolak: Tiket tidak diassign ke teknisi ini."
+#         )
+
+#     if ticket.status != "diproses":
+#         raise HTTPException(
+#             status_code=400,
+#             detail="Tiket belum bisa diselesaikan karena tidak dalam status 'diproses'."
+#         )
+
+#     ticket.status = "selesai"
+#     ticket.status_ticket_pengguna = "selesai"
+#     ticket.status_ticket_seksi = "normal"
+#     ticket.status_ticket_teknisi = "selesai"
+#     ticket.pengerjaan_akhir_teknisi = datetime.utcnow()
+
+
+#     teknisi = db.query(Users).filter(Users.id == teknisi_user_id).first()
+
+#     if teknisi:
+#         teknisi.teknisi_kuota_terpakai -= 1
+#         if teknisi.teknisi_kuota_terpakai < 0:
+#             teknisi.teknisi_kuota_terpakai = 0
+
+#     db.commit()
+#     db.refresh(ticket)
+
+#     add_ticket_history(
+#         db=db,
+#         ticket=ticket,
+#         old_status=old_status,
+#         new_status=ticket.status, 
+#         updated_by=UUID(current_user["id"]),
+#         extra={"notes": "Tiket dibuat melalui pelaporan online"}
+#     )
+
+#     await update_ticket_status(
+#         db=db,
+#         ticket=ticket,
+#         new_status="Selesai",
+#         updated_by=current_user["id"]
+#     )
+
+#     # ==== notif seksi OPD teknisi ====
+#     seksi_users = (
+#         db.query(Users)
+#         .join(Roles)
+#         .filter(Roles.role_name == "seksi", Users.opd_id == teknisi_opd_id)
+#         .all()
+#     )
+
+#     for seksi in seksi_users:
+#         db.add(models.Notifications(
+#             user_id=seksi.id,
+#             ticket_id=ticket.ticket_id,
+#             message=f"Tiket {ticket.ticket_code} telah selesai diproses teknisi",
+#             status="Tiket Selesai",
+#             is_read=False,
+#             created_at=datetime.utcnow()
+#         ))
+
+#     db.commit()
+
+#     return {
+#         "message": "Tiket berhasil diselesaikan oleh teknisi.",
+#         "ticket_id": str(ticket.ticket_id),
+#         "status": ticket.status,
+#         "status_ticket_pengguna": ticket.status_ticket_pengguna,
+#         "status_ticket_seksi": ticket.status_ticket_seksi,
+#         "status_ticket_teknisi": ticket.status_ticket_teknisi,
+#         "pengerjaan_akhir_teknisi": ticket.pengerjaan_akhir_teknisi
+#     }
 
 @router.get("/teknisi/ratings")
 def get_ratings_for_teknisi(
@@ -1658,18 +1772,25 @@ def create_rfc_change_request(
     )
 
     db.add(new_rfc)
-    db.commit()
-    db.refresh(new_rfc)
+    # db.commit()
+    # db.refresh(new_rfc)
 
     # Update tiket supaya teknisi tidak bisa mengerjakan sebelum RFC disetujui
     ticket.status_ticket_seksi = "Menunggu RFC disetujui"
+    ticket.rfc_required = True
+    ticket.trace_rfc_id = trace_rfc_id
+
     db.commit()
+    db.refresh(new_rfc)
+    db.refresh(ticket)
 
     return {
         "message": "RFC change request berhasil diajukan",
         "local_rfc_id": str(new_rfc.id),
         "trace_response": trace_data,
-        "ticket_status": ticket.status_ticket_seksi
+        "ticket_status": ticket.status_ticket_seksi,
+        "ticket_trace_rfc_id": ticket.trace_rfc_id,
+        "ticket_rfc_required": ticket.rfc_required
     }
 
 @router.get("/rfc/change-request")
