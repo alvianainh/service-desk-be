@@ -217,6 +217,13 @@ class RFCChangeRequestSchema(BaseModel):
 class RejectTicketPayload(BaseModel):
     alasan_penolakan: str
 
+
+class AnnouncementCreateSchema(BaseModel):
+    title: str
+    content: str
+    external_link: Optional[str] = None
+
+
 # class TicketTrackResponse(BaseModel):
 #     ticket_id: UUID 
 #     status: str 

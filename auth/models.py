@@ -172,3 +172,19 @@ class Dinas(Base):
 
     file_path = Column(String, nullable=True)
 
+
+class PasswordResetOTP(Base):
+    __tablename__ = "password_reset_otp"
+
+    id = Column(BigInteger, primary_key=True, index=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+
+    otp_code = Column(String(6), nullable=False)
+    expired_at = Column(DateTime(timezone=True), nullable=False)
+
+    is_used = Column(Boolean, default=False, nullable=False)
+    created_at = Column(
+        DateTime(timezone=True),
+        default=datetime.utcnow,
+        nullable=False
+    )

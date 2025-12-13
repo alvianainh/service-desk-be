@@ -439,6 +439,29 @@ class Notifications(Base):
 
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
+
+class Announcements(Base):
+    __tablename__ = "announcements"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    title = Column(String, nullable=False)
+    content = Column(Text, nullable=False)
+
+    attachment_url = Column(Text, nullable=True)
+    attachment_type = Column(String, nullable=True)
+    external_link = Column(Text, nullable=True)
+
+    created_by = Column(UUID(as_uuid=True), ForeignKey("users.id"))
+    created_at = Column(DateTime, default=datetime.utcnow)
+    is_active = Column(Boolean, default=True)
+
+    creator = relationship(
+        "Users",
+        foreign_keys=[created_by],
+        backref="announcements"
+    )
+
+
 # class TicketUpdates(Base):
 #     __tablename__ = "ticket_updates"
 

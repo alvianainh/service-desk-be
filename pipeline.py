@@ -18,8 +18,8 @@ from auth.auth import (
     create_access_token_simple
 )
 from auth import database
-from auth.models import Users, Roles, Opd, RefreshTokens
-from pydantic import BaseModel
+from auth.models import Users, Roles, Opd, RefreshTokens, PasswordResetOTP
+from pydantic import BaseModel, EmailStr
 from typing import List, Optional
 from datetime import date
 from uuid import UUID
@@ -27,9 +27,12 @@ import uuid
 import mimetypes
 import os
 from dotenv import load_dotenv
-from datetime import datetime
+from datetime import datetime, timedelta
 from supabase import create_client, Client
 import aiohttp
+import random
+from email.mime.text import MIMEText
+import smtplib
 
 router = APIRouter()
 # router.include_router(auth_routes.router)
@@ -39,6 +42,8 @@ SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 BUCKET_NAME = "avatar"
+SMTP_EMAIL = os.getenv("SMTP_EMAIL")
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")
 
 load_dotenv()
 
@@ -85,11 +90,101 @@ class LoginPayload(BaseModel):
     login: str
     password: str
 
+class ResetPasswordPayload(BaseModel):
+    email: EmailStr
+    otp: str
+    new_password: str
+
+def generate_otp():
+    return str(random.randint(100000, 999999))
+
+
+def send_otp_email(to_email: str, otp: str):
+    msg = MIMEText(
+        f"Kode OTP reset password kamu: {otp}\n\n"
+        f"Berlaku selama 5 menit."
+    )
+    msg["Subject"] = "Reset Password"
+    msg["From"] = SMTP_EMAIL
+    msg["To"] = to_email
+
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+        server.login(SMTP_EMAIL, SMTP_PASSWORD)
+        server.send_message(msg)
+
 
 @router.get("/")
 async def root():
     logger.info("GET / - Root endpoint accessed")
     return {"message": "Server is running!"}
+
+
+# @router.post("/password/reset/request")
+# def request_reset_password(email: EmailStr, db: Session = Depends(get_db)):
+#     user = db.query(Users).filter(Users.email == email).first()
+#     if not user:
+#         raise HTTPException(404, "Email tidak terdaftar")
+
+#     otp = generate_otp()
+#     expired_at = datetime.utcnow() + timedelta(minutes=5)
+
+
+#     db.query(PasswordResetOTP).filter(
+#         PasswordResetOTP.user_id == user.id,
+#         PasswordResetOTP.is_used == False
+#     ).update({"is_used": True})
+
+#     otp_data = PasswordResetOTP(
+#         user_id=user.id,
+#         otp_code=otp,
+#         expired_at=expired_at
+#     )
+
+#     db.add(otp_data)
+#     db.commit()
+
+#     send_otp_email(email, otp)
+
+#     return {"message": "OTP berhasil dikirim ke email"}
+
+
+# @router.post("/password/reset/confirm")
+# def confirm_reset_password(
+#     payload: ResetPasswordPayload,
+#     db: Session = Depends(get_db)
+# ):
+#     user = db.query(Users).filter(Users.email == payload.email).first()
+#     if not user:
+#         raise HTTPException(404, "User tidak ditemukan")
+
+#     otp_data = (
+#         db.query(PasswordResetOTP)
+#         .filter(
+#             PasswordResetOTP.user_id == user.id,
+#             PasswordResetOTP.otp_code == payload.otp,
+#             PasswordResetOTP.is_used == False,
+#             PasswordResetOTP.expired_at >= datetime.utcnow()
+#         )
+#         .order_by(PasswordResetOTP.created_at.desc())
+#         .first()
+#     )
+
+#     if not otp_data:
+#         raise HTTPException(400, "OTP tidak valid atau sudah expired")
+
+#     # update password
+#     user.password = hash_password(payload.new_password)
+
+#     # invalidate OTP
+#     otp_data.is_used = True
+
+#     db.commit()
+
+#     return {"message": "Password berhasil direset"}
+
+
+
+
 
 # @router.post("/register")
 # async def register(data: RegisterModel, db: Session = Depends(database.get_db)):

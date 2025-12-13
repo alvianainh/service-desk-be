@@ -6,8 +6,8 @@ from . import models, schemas
 from auth.database import get_db
 from auth.auth import get_current_user, get_user_by_email, get_current_user_masyarakat, get_current_user_universal
 from tickets import models, schemas
-from tickets.models import Tickets, TicketAttachment, TicketCategories, TicketUpdates, TeknisiTags, TeknisiLevels, TicketRatings, WarRoom, WarRoomOPD, WarRoomSeksi, TicketServiceRequests
-from tickets.schemas import TicketCreateSchema, TicketResponseSchema, TicketCategorySchema, TicketForSeksiSchema, TicketTrackResponse, UpdatePriority, ManualPriority, RejectReasonSeksi, RejectReasonBidang, AssignTeknisiSchema, WarRoomCreate
+from tickets.models import Tickets, TicketAttachment, TicketCategories, TicketUpdates, TeknisiTags, TeknisiLevels, TicketRatings, WarRoom, WarRoomOPD, WarRoomSeksi, TicketServiceRequests, Announcements
+from tickets.schemas import TicketCreateSchema, TicketResponseSchema, TicketCategorySchema, TicketForSeksiSchema, TicketTrackResponse, UpdatePriority, ManualPriority, RejectReasonSeksi, RejectReasonBidang, AssignTeknisiSchema, WarRoomCreate, AnnouncementCreateSchema
 import uuid
 from auth.models import Opd, Dinas, Roles, Users
 import os
@@ -264,6 +264,22 @@ def add_ticket_history(
     db.refresh(history)
 
     return history
+
+def upload_announcement_file(file: UploadFile) -> str:
+    file_ext = os.path.splitext(file.filename)[1]
+    filename = f"announcement/{uuid.uuid4()}{file_ext}"
+
+    content = file.file.read()
+
+    supabase.storage.from_("announcement").upload(
+        filename,
+        content,
+        {"content-type": file.content_type}
+    )
+
+    public_url = supabase.storage.from_("announcement").get_public_url(filename)
+    return public_url
+
 
 @router.get("/admin-kota/tickets/critical")
 def get_critical_tickets(
@@ -563,7 +579,7 @@ def get_completed_tickets_for_diskominfo_pegawai(
     #         status_code=403,
     #         detail=f"Akses ditolak: hanya role {', '.join(allowed_roles)} yang diperbolehkan."
     #     )
-    
+
     if current_user.get("role_name") != "diskominfo":
         raise HTTPException(
             status_code=403,
@@ -935,6 +951,58 @@ def get_ratings_pelaporan_online_admin_kota(
         "filter_opd": opd_id if opd_id else "all",
         "data": results
     }
+
+@router.get("/admin-kota/statistik/pelaporan-online/rekap")
+def get_rekap_pelaporan_online_bulanan(
+    year: Optional[int] = Query(None),
+    opd_id: Optional[int] = Query(None, description="Filter OPD ID (optional)"),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user_universal)
+):
+
+    if current_user.get("role_name") != "diskominfo":
+        raise HTTPException(
+            status_code=403,
+            detail="Akses ditolak: hanya admin kota (diskominfo)."
+        )
+
+    if not year:
+        year = datetime.now().year
+
+    filters = [
+        models.Tickets.request_type == "pelaporan_online",
+        models.Tickets.status == "selesai",
+        extract("year", models.Tickets.created_at) == year
+    ]
+
+    if opd_id is not None:
+        filters.append(models.Tickets.opd_id_tickets == opd_id)
+
+    raw_result = (
+        db.query(
+            extract("month", models.Tickets.created_at).label("bulan"),
+            func.count(models.Tickets.ticket_id).label("total")
+        )
+        .filter(*filters)
+        .group_by(extract("month", models.Tickets.created_at))
+        .all()
+    )
+
+    hasil_map = {int(r.bulan): r.total for r in raw_result}
+
+    rekap = []
+    for bulan in range(1, 13):
+        rekap.append({
+            "bulan": bulan,
+            "total_tiket": hasil_map.get(bulan, 0)
+        })
+
+    return {
+        "tahun": year,
+        "filter_opd_id": opd_id,  
+        "rekap": rekap
+    }
+
 
 
 @router.get("/admin-kota/statistik/pelaporan-online/kategori")
@@ -1939,3 +2007,136 @@ def get_all_teknisi_tickets_admin_kota(
         "filter_request_type": request_type if request_type else "all",
         "data": result
     }
+
+@router.post("/admin-kota/announcements")
+def create_announcement(
+    title: str = Form(...),
+    content: str = Form(...),
+    external_link: Optional[str] = Form(None),
+    file: Optional[UploadFile] = File(None),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user_universal)
+):
+    if current_user.get("role_name") != "diskominfo":
+        raise HTTPException(
+            status_code=403,
+            detail="Akses ditolak: hanya admin kota."
+        )
+
+    # ✅ ambil user id yang BENAR
+    user_id = current_user.get("id") or current_user.get("user_id")
+
+    if not user_id:
+        raise HTTPException(
+            status_code=401,
+            detail="User tidak valid"
+        )
+
+    attachment_url = None
+    attachment_type = None
+
+    if file:
+        attachment_url = upload_announcement_file(file)
+        attachment_type = (
+            "image" if file.content_type and file.content_type.startswith("image")
+            else "file"
+        )
+
+    announcement = models.Announcements(
+        title=title,
+        content=content,
+        external_link=external_link,
+        attachment_url=attachment_url,
+        attachment_type=attachment_type,
+        created_by=UUID(user_id)  # ✅ FIX UTAMA
+    )
+
+    db.add(announcement)
+    db.commit()
+    db.refresh(announcement)
+
+    return {
+        "message": "Pengumuman berhasil dibuat",
+        "data": {
+            "id": str(announcement.id),
+            "title": announcement.title,
+            "content": announcement.content,
+            "attachment_url": announcement.attachment_url,
+            "attachment_type": announcement.attachment_type,
+            "external_link": announcement.external_link,
+            "created_by": str(announcement.created_by),
+            "created_at": announcement.created_at
+        }
+    }
+
+@router.get("/announcements")
+def get_all_announcements(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user_universal)
+):
+    announcements = (
+        db.query(models.Announcements)
+        .filter(models.Announcements.is_active == True)
+        .order_by(models.Announcements.created_at.desc())
+        .all()
+    )
+
+    return [
+        {
+            "id": str(a.id),
+            "title": a.title,
+            "content": a.content,
+
+            "attachment_url": a.attachment_url,
+            "attachment_type": a.attachment_type,
+            "external_link": a.external_link,
+
+            "created_at": a.created_at,
+            "creator": {
+                "user_id": str(a.created_by) if a.created_by else None,
+                "full_name": a.creator.full_name if a.creator else None,
+                "email": a.creator.email if a.creator else None,
+                "profile": a.creator.profile_url if a.creator else None,
+            }
+        }
+        for a in announcements
+    ]
+
+
+
+@router.get("/announcements/{announcement_id}")
+def get_announcement_detail(
+    announcement_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user_universal)
+):
+    announcement = (
+        db.query(models.Announcements)
+        .filter(
+            models.Announcements.id == announcement_id,
+            models.Announcements.is_active == True
+        )
+        .first()
+    )
+
+    if not announcement:
+        raise HTTPException(404, "Pengumuman tidak ditemukan")
+
+    return {
+        "id": str(announcement.id),
+        "title": announcement.title,
+        "content": announcement.content,
+
+        "attachment_url": announcement.attachment_url,
+        "attachment_type": announcement.attachment_type,
+        "external_link": announcement.external_link,
+
+        "created_at": announcement.created_at,
+        "creator": {
+            "user_id": str(announcement.created_by) if announcement.created_by else None,
+            "full_name": announcement.creator.full_name if announcement.creator else None,
+            "email": announcement.creator.email if announcement.creator else None,
+            "profile": announcement.creator.profile_url if announcement.creator else None,
+        }
+    }
+
