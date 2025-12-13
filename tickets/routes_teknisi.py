@@ -1094,7 +1094,6 @@ async def teknisi_reject_ticket(
     rfc_ok = True
     rfc_id = ticket.trace_rfc_id
 
-    # --- Jika tiket ada RFC, kirim ke TRACE failed ---
     if rfc_id:
         token = current_user.get("access_token")
         try:
@@ -1119,7 +1118,6 @@ async def teknisi_reject_ticket(
             trace_response = {"error": str(e)}
             rfc_ok = False
 
-    # --- Update internal DB hanya jika RFC berhasil atau tiket tanpa RFC ---
     if rfc_ok:
         old_status = ticket.status
         ticket.status = "ditolak oleh teknisi"
@@ -1509,7 +1507,6 @@ def get_active_configuration_items(
         "accept": "application/json"
     }
 
-    # pagination default
     page = 1
     per_page = 100
 
@@ -1533,13 +1530,11 @@ def get_active_configuration_items(
 
         result = response.json()
 
-        # append data CI
         all_data.extend(result.get("data", []))
 
         pagination = result.get("pagination", {})
         last_page = pagination.get("last_page", 1)
 
-        # kalau sudah di halaman terakhir → stop loop
         if page >= last_page:
             break
 
@@ -1747,7 +1742,6 @@ def get_rfc_incident_repeat_by_id(
     if not token:
         raise HTTPException(401, "Token tidak ditemukan")
 
-    # Ambil RFC dari tabel lokal
     r = (
         db.query(RFCIncidentRepeat)
         .filter(
@@ -1760,7 +1754,6 @@ def get_rfc_incident_repeat_by_id(
     if not r:
         raise HTTPException(404, "RFC tidak ditemukan")
 
-    # Ambil status dari TRACE kalau ada
     status_trace = None
     lampiran = None
     rencana_implementasi = None
@@ -1828,16 +1821,13 @@ def create_rfc_change_request(
     if not token:
         raise HTTPException(401, "Token tidak ditemukan")
 
-    # Ambil tiket terkait
     ticket = db.query(Tickets).filter(Tickets.ticket_id == payload.ticket_id).first()
     if not ticket:
         raise HTTPException(404, "Tiket tidak ditemukan")
 
-    # Nama pemohon & OPD dari current_user
     nama_pemohon = current_user.get("full_name")
     opd_pemohon = current_user.get("dinas_name")
 
-    # Ambil data asset dari ARISE
     asset_res = requests.get(
         f"{ARISE_BASE_URL}/api/asset-barang/{payload.id_aset}",
         headers={
@@ -1854,7 +1844,6 @@ def create_rfc_change_request(
 
     deskripsi_aset = payload.deskripsi_aset
 
-    # Prepare payload ke TRACE
     trace_payload = {
         "judul_perubahan": payload.judul_perubahan,
         "kategori_aset": kategori_aset,
@@ -1905,7 +1894,6 @@ def create_rfc_change_request(
     # db.commit()
     # db.refresh(new_rfc)
 
-    # Update tiket supaya teknisi tidak bisa mengerjakan sebelum RFC disetujui
     ticket.status_ticket_seksi = "Menunggu RFC disetujui"
     ticket.rfc_required = True
     ticket.trace_rfc_id = trace_rfc_id
@@ -1950,7 +1938,6 @@ def get_rfc_change_requests(
         alasan_penolakan = None
         rencana_rollback = None
 
-        # --- Fetch status dari TRACE jika ada trace_rfc_id ---
         if r.trace_rfc_id:
             try:
                 trace_res = requests.get(
@@ -1974,7 +1961,6 @@ def get_rfc_change_requests(
                 alasan_penolakan = None
                 rencana_rollback = None
 
-        # Ambil info tiket terkait
         ticket = db.query(Tickets).filter(Tickets.ticket_id == r.ticket_id).first()
         ticket_code = ticket.ticket_code if ticket else None
         ticket_status = ticket.status_ticket_seksi if ticket else None

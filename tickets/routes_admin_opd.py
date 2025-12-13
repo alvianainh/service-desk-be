@@ -455,7 +455,8 @@ def get_ratings_pelaporan_online(
         db.query(models.Tickets)
         .filter(
             models.Tickets.opd_id_tickets == opd_id_user,
-            models.Tickets.request_type == "pelaporan_online"
+            models.Tickets.request_type == "pelaporan_online",
+            models.Tickets.status == "selesai"  # <-- hanya tiket selesai
         )
     )
 
@@ -473,8 +474,8 @@ def get_ratings_pelaporan_online(
             .first()
         )
 
-        if not rating:
-            continue
+        # if not rating:
+        #     continue
 
         attachments = t.attachments if hasattr(t, "attachments") else []
 
@@ -492,9 +493,9 @@ def get_ratings_pelaporan_online(
             "pengerjaan_awal_teknisi": t.pengerjaan_awal_teknisi,
             "pengerjaan_akhir_teknisi": t.pengerjaan_akhir_teknisi,
 
-            "rating": rating.rating,
-            "comment": rating.comment,
-            "rated_at": rating.created_at,
+            "rating": rating.rating if rating else None,
+            "comment": rating.comment if rating else None,
+            "rated_at": rating.created_at if rating else None,
 
             "user": {
                 "user_id": str(t.creates_id) if t.creates_id else None,
@@ -532,6 +533,54 @@ def get_ratings_pelaporan_online(
         "data": results
     }
 
+@router.get("/admin-opd/statistik/pelaporan-online/rekap")
+def get_rekap_pelaporan_online_bulanan(
+    year: Optional[int] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user_universal)
+):
+
+    if current_user.get("role_name") != "admin dinas":
+        raise HTTPException(
+            status_code=403,
+            detail="Akses ditolak: hanya admin OPD."
+        )
+
+    opd_id_user = current_user.get("dinas_id")
+
+    if not year:
+        year = datetime.now().year
+
+    raw_result = (
+        db.query(
+            extract("month", models.Tickets.created_at).label("bulan"),
+            func.count(models.Tickets.ticket_id).label("total")
+        )
+        .filter(
+            models.Tickets.opd_id_tickets == opd_id_user,
+            models.Tickets.request_type == "pelaporan_online",
+            models.Tickets.status == "selesai",
+            extract("year", models.Tickets.created_at) == year
+        )
+        .group_by(extract("month", models.Tickets.created_at))
+        .all()
+    )
+
+    hasil_map = {int(r.bulan): r.total for r in raw_result}
+
+    rekap = []
+    for bulan in range(1, 13):
+        rekap.append({
+            "bulan": bulan,
+            "total_tiket": hasil_map.get(bulan, 0)  
+        })
+
+    return {
+        "tahun": year,
+        "opd_id": opd_id_user,
+        "rekap": rekap
+    }
+
 
 @router.get("/admin-opd/statistik/pelaporan-online/kategori")
 def get_statistik_kategori_pelaporan_online(
@@ -553,7 +602,8 @@ def get_statistik_kategori_pelaporan_online(
         db.query(models.Tickets)
         .filter(
             models.Tickets.opd_id_tickets == opd_id_user,
-            models.Tickets.request_type == "pelaporan_online"
+            models.Tickets.request_type == "pelaporan_online",
+            models.Tickets.status == "selesai"  # <-- hanya tiket selesai
         )
         .all()
     )
@@ -615,7 +665,8 @@ def get_statistik_priority_pelaporan_online(
         db.query(models.Tickets)
         .filter(
             models.Tickets.opd_id_tickets == opd_id_user,
-            models.Tickets.request_type == "pelaporan_online"
+            models.Tickets.request_type == "pelaporan_online",
+            models.Tickets.status == "selesai"  # <-- hanya tiket selesai
         )
         .all()
     )
