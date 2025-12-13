@@ -9,7 +9,7 @@ from tickets import models, schemas
 from tickets.models import Tickets, TicketAttachment, TicketCategories, TicketUpdates, TeknisiTags, TeknisiLevels, TicketRatings, WarRoom, WarRoomOPD, WarRoomSeksi, TicketServiceRequests, Notifications, Announcements
 from tickets.schemas import TicketCreateSchema, TicketResponseSchema, TicketCategorySchema, TicketForSeksiSchema, TicketTrackResponse, UpdatePriority, ManualPriority, RejectReasonSeksi, RejectReasonBidang, AssignTeknisiSchema
 import uuid
-from auth.models import Opd, Dinas, Roles, Users
+from auth.models import Opd, Dinas, Roles, Users, Articles
 import os
 from supabase import create_client, Client
 from sqlalchemy import text, or_, extract, func
@@ -376,8 +376,39 @@ def get_admin_dinas_notifications(
         for n in announcement_notifications
     ]
 
+    article_notifications = (
+        db.query(
+            Notifications.id.label("notification_id"),
+            Notifications.message,
+            Notifications.is_read,
+            Notifications.created_at,
+            Articles.title.label("article_title"),
+            Articles.article_id.label("article_id")
+        )
+        .join(Articles, Articles.article_id == Notifications.article_id)
+        .filter(
+            Notifications.user_id == admin_uuid,
+            Notifications.notification_type == "article"
+        )
+        .order_by(Notifications.created_at.desc())
+        .all()
+    )
+
+    article_data = [
+        {
+            "notification_id": str(n.notification_id),
+            "article_id": str(n.article_id),
+            "title": n.article_title,
+            "message": n.message,
+            "is_read": n.is_read,
+            "created_at": n.created_at.replace(tzinfo=timezone.utc) if n.created_at.tzinfo is None else n.created_at,
+            "notification_type": "article"
+        }
+        for n in article_notifications
+    ]
+
     # 4️⃣ Gabungkan & urut berdasarkan created_at
-    all_notifications = ticket_data + announcement_data
+    all_notifications = ticket_data + announcement_data + article_data
     all_notifications.sort(key=lambda x: x["created_at"], reverse=True)
 
     total = len(all_notifications)

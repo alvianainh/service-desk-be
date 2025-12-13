@@ -1,15 +1,15 @@
 import logging
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status, Response, Query
 from sqlalchemy.orm import Session
-from datetime import datetime, time
+from datetime import datetime, time, timezone
 from . import models, schemas
 from auth.database import get_db
 from auth.auth import get_current_user, get_user_by_email, get_current_user_masyarakat, get_current_user_universal
 from tickets import models, schemas
-from tickets.models import Tickets, TicketAttachment, TicketCategories, TicketUpdates, TeknisiTags, TeknisiLevels, TicketRatings, WarRoom, WarRoomOPD, WarRoomSeksi, TicketServiceRequests, Announcements
+from tickets.models import Tickets, TicketAttachment, TicketCategories, TicketUpdates, TeknisiTags, TeknisiLevels, TicketRatings, WarRoom, WarRoomOPD, WarRoomSeksi, TicketServiceRequests, Announcements, Notifications
 from tickets.schemas import TicketCreateSchema, TicketResponseSchema, TicketCategorySchema, TicketForSeksiSchema, TicketTrackResponse, UpdatePriority, ManualPriority, RejectReasonSeksi, RejectReasonBidang, AssignTeknisiSchema, WarRoomCreate, AnnouncementCreateSchema
 import uuid
-from auth.models import Opd, Dinas, Roles, Users
+from auth.models import Opd, Dinas, Roles, Users, Articles
 import os
 from supabase import create_client, Client
 from sqlalchemy import text, or_, extract, func
@@ -280,6 +280,63 @@ def upload_announcement_file(file: UploadFile) -> str:
     public_url = supabase.storage.from_("announcement").get_public_url(filename)
     return public_url
 
+
+
+@router.get("/notifications-all/admin-kota")
+def get_admin_kota_notifications(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user_universal)
+):
+    if "diskominfo" not in current_user.get("role_name", []):
+        raise HTTPException(403, "Akses ditolak: hanya admin kota yang dapat melihat notifikasi")
+
+    try:
+        admin_uuid = UUID(current_user["id"])
+    except ValueError:
+        raise HTTPException(400, "User ID tidak valid")
+
+    # Ambil notifikasi artikel
+    article_notifications = (
+        db.query(
+            Notifications.id.label("notification_id"),
+            Notifications.message,
+            Notifications.is_read,
+            Notifications.created_at,
+            Articles.title.label("article_title"),
+            Articles.article_id.label("article_id")
+        )
+        .join(Articles, Articles.article_id == Notifications.article_id)
+        .filter(
+            Notifications.user_id == admin_uuid,
+            Notifications.notification_type == "article"
+        )
+        .order_by(Notifications.created_at.desc())
+        .all()
+    )
+
+    # Format response
+    article_data = [
+        {
+            "notification_id": str(n.notification_id),
+            "article_id": str(n.article_id),
+            "title": n.article_title,
+            "message": n.message,
+            "is_read": n.is_read,
+            "created_at": n.created_at.replace(tzinfo=timezone.utc) if n.created_at.tzinfo is None else n.created_at,
+            "notification_type": "article"
+        }
+        for n in article_notifications
+    ]
+
+    total = len(article_data)
+    unread = sum(1 for n in article_data if not n["is_read"])
+
+    return {
+        "status": "success",
+        "total_notifications": total,
+        "unread_notifications": unread,
+        "data": article_data
+    }
 
 @router.get("/admin-kota/tickets/critical")
 def get_critical_tickets(

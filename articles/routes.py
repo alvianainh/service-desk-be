@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, File, UploadFile,
 from sqlalchemy.orm import Session
 from auth.auth import get_current_user, get_current_user_universal
 from auth.database import get_db
-from auth.models import Articles, Users, ArticleTags, Tags
+from auth.models import Articles, Users, ArticleTags, Tags, Roles
 import uuid
 from pydantic import BaseModel
 from sqlalchemy import func
@@ -13,6 +13,7 @@ import mimetypes
 from uuid import uuid4
 from supabase import create_client
 from datetime import datetime
+from tickets.models import Announcements, Notifications
 
 router = APIRouter(prefix="/articles", tags=["articles"])
 
@@ -29,8 +30,8 @@ class ArticleData(BaseModel):
     cover_path: Optional[str]
     tags: List[str] = []
     created_at: datetime
-    status_admin_opd: Optional[str]   # ✅ tambahkan ini
-    status_admin_kota: Optional[str]  # ✅ tambahkan ini
+    status_admin_opd: Optional[str]   
+    status_admin_kota: Optional[str] 
 
 
 
@@ -140,9 +141,9 @@ async def create_article(
     new_article = Articles(
         title=title,
         content=content,
-        status="pending_review",          # status global
-        status_admin_opd="menunggu review",  # untuk tracking review admin opd
-        status_admin_kota="draft",        # untuk tracking status admin kota
+        status="pending_review",         
+        status_admin_opd="menunggu review",  
+        status_admin_kota="draft",       
         makes_by_id=current_user["id"],
         cover_path=final_cover_path
     )
@@ -161,6 +162,28 @@ async def create_article(
     db.refresh(new_article)
 
     tag_names = [t.tag_name for t in new_article.tags]
+    admin_kotas = (
+        db.query(Users)
+        .join(Roles, Users.role_id == Roles.role_id)
+        .filter(Roles.role_name == "diskominfo")
+        .all()
+    )
+
+    notif_message = f"Artikel '{new_article.title}' telah diajukan dan menunggu review admin kota"
+
+    for admin in admin_kotas:
+        new_notif = Notifications(
+            id=uuid4(),
+            user_id=admin.id,  # user admin kota
+            article_id=new_article.article_id,
+            notification_type="article",
+            message=notif_message,
+            is_read=False,
+            created_at=datetime.utcnow()
+        )
+        db.add(new_notif)
+
+    db.commit()
 
     return {
         "message": "Artikel berhasil diajukan dan menunggu review admin kota",
@@ -227,34 +250,6 @@ async def update_article(
     }
 
 
-#UPDATE APPROVE REJECT DUA ARAH
-# @router.put("/{article_id}/verify")
-# async def verify_article(
-#     article_id: str,
-#     decision: str,  # "approve" atau "reject"
-#     db: Session = Depends(get_db),
-#     current_user: dict = Depends(get_current_user)
-# ):
-#     roles = current_user.get("roles", [])
-
-#     if "admin_kota" not in roles:
-#         raise HTTPException(status_code=403, detail="Unauthorized: Only admin_kota can verify articles")
-
-#     article = db.query(Articles).filter(Articles.article_id == article_id).first()
-#     if not article:
-#         raise HTTPException(status_code=404, detail="Article not found")
-
-#     if decision not in ["approve", "reject"]:
-#         raise HTTPException(status_code=400, detail="Invalid decision. Must be 'approve' or 'reject'")
-
-#     article.status = "approved" if decision == "approve" else "rejected"
-#     article.approved_id = current_user["id"]
-#     db.commit()
-
-#     return {"message": f"Article has been {article.status}"}
-
-
-# UPDATE APPROVAL SATU ARAH
 @router.put("/{article_id}/verify")
 async def verify_article(
     article_id: str,
@@ -292,24 +287,43 @@ async def verify_article(
             detail=f"Cannot change article status. Article has already been {article.status}"
         )
 
-    # Update status sesuai keputusan admin kota
+    now = datetime.utcnow()
+    notif_message = None
+
     if decision == "review":
         article.status_admin_kota = "review"
         article.status = "review"
-        # status_admin_opd tetap apa adanya
+        notif_message = f"Artikel '{article.title}' dikembalikan ke status review oleh admin kota"
+
     elif decision == "approve":
         article.status_admin_kota = "approved"
         article.status = "approved"
         article.status_admin_opd = "approved"
         article.approved_id = current_user["id"]
+        notif_message = f"Artikel '{article.title}' telah disetujui oleh admin kota"
+
     elif decision == "reject":
         article.status_admin_kota = "rejected"
         article.status = "rejected"
         article.status_admin_opd = "rejected"
         article.approved_id = current_user["id"]
+        notif_message = f"Artikel '{article.title}' ditolak oleh admin kota"
 
     db.commit()
     db.refresh(article)
+
+    if notif_message and article.makes_by_id:
+        new_notif = Notifications(
+            id=uuid4(),
+            user_id=article.makes_by_id,
+            article_id=article.article_id,  
+            notification_type="article",
+            message=notif_message,
+            is_read=False,
+            created_at=now
+        )
+        db.add(new_notif)
+        db.commit()
 
     return {
         "message": f"Article status has been updated to '{article.status}'",
@@ -358,6 +372,25 @@ async def publish_article(
     db.commit()
     db.refresh(article)
 
+    admin_kotas = db.query(Users).join(Roles, Roles.role_id == Users.role_id)\
+                    .filter(Roles.role_name == "diskominfo").all()
+
+    notif_message = f"Artikel '{article.title}' telah dipublikasikan"
+
+    for admin in admin_kotas:
+        new_notif = Notifications(
+            id=uuid4(),
+            user_id=admin.id,   # notif masuk ke admin kota
+            article_id=article.article_id,
+            notification_type="article",
+            message=notif_message,
+            is_read=False,
+            created_at=datetime.utcnow()
+        )
+        db.add(new_notif)
+
+    db.commit()
+    
     return {
         "message": f"Article has been published",
         "data": {

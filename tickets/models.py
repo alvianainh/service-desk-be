@@ -430,6 +430,8 @@ class Notifications(Base):
 
     notification_type = Column(String(30), nullable=False)
     status = Column(String(50), nullable=True)
+    article_id = Column(UUID(as_uuid=True), ForeignKey("articles.article_id", ondelete="CASCADE"), nullable=True)
+
 
     ticket_id = Column(
         UUID(as_uuid=True),
