@@ -1,12 +1,12 @@
 import logging
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status, Response
 from sqlalchemy.orm import Session
-from datetime import datetime, time
+from datetime import datetime, time, timezone
 from . import models, schemas
 from auth.database import get_db
 from auth.auth import get_current_user, get_user_by_email, get_current_user_masyarakat, get_current_user_universal
 from tickets import models, schemas
-from tickets.models import Tickets, TicketAttachment, TicketCategories, TicketUpdates, TeknisiTags, TeknisiLevels, TicketRatings, Notifications
+from tickets.models import Tickets, TicketAttachment, TicketCategories, TicketUpdates, TeknisiTags, TeknisiLevels, TicketRatings, Notifications, Announcements
 from tickets.schemas import TicketCreateSchema, TicketResponseSchema, TicketCategorySchema, TicketForSeksiSchema, TicketTrackResponse, UpdatePriority, ManualPriority, RejectReasonSeksi, RejectReasonBidang, AssignTeknisiSchema
 import uuid
 from auth.models import Opd, Dinas, Roles, Users
@@ -842,10 +842,16 @@ def get_notifications(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user_universal)
 ):
+    allowed_roles = ["masyarakat", "opd"]
+    if current_user.get("role_name") not in allowed_roles:
+        raise HTTPException(
+            status_code=403,
+            detail="Akses ditolak: hanya masyarakat dan pegawai yang dapat mengakses notifikasi."
+        )
 
     user_id = current_user["id"]
 
-    notifications = (
+    ticket_notifications = (
         db.query(
             Notifications.id.label("notification_id"),
             Notifications.ticket_id,
@@ -867,26 +873,84 @@ def get_notifications(
         .all()
     )
 
+    ticket_data = [
+        {
+            "notification_id": str(n.notification_id),
+            "ticket_id": str(n.ticket_id) if n.ticket_id else None,
+            "ticket_code": n.ticket_code,
+            "request_type": n.request_type,
+            "opd_id_tiket": str(n.opd_id_tiket),
+            "nama_dinas": n.nama_dinas,
+            "rejection_reason_seksi": n.rejection_reason_seksi,
+            "status_ticket_pengguna": n.status,
+            "message": n.message,
+            "is_read": n.is_read,
+            "created_at": n.created_at.replace(tzinfo=timezone.utc) if n.created_at.tzinfo is None else n.created_at,
+            "notification_type": "ticket"
+        }
+        for n in ticket_notifications
+    ]
+
+    # 2️⃣ Notif pengumuman admin kota
+    announcements = (
+        db.query(Announcements)
+        .filter(Announcements.is_active == True)
+        .order_by(Announcements.created_at.desc())
+        .all()
+    )
+
+    announcement_notifications = (
+        db.query(
+            Notifications.id.label("notification_id"),
+            Notifications.announcement_id,
+            Notifications.message,
+            Notifications.is_read,
+            Notifications.created_at,
+            Announcements.title,
+            Announcements.content,
+            Announcements.attachment_url,
+            Announcements.attachment_type,
+            Announcements.external_link,
+            Announcements.created_by
+        )
+        .join(Announcements, Announcements.id == Notifications.announcement_id)
+        .filter(
+            Notifications.user_id == user_id,
+            Notifications.notification_type == "announcement",
+            Announcements.is_active == True
+        )
+        .order_by(Notifications.created_at.desc())
+        .all()
+    )
+
+    announcement_data = [
+        {
+            "notification_id": str(n.notification_id),  # ✅ ambil dari tabel Notifications
+            "announcement_id": str(n.announcement_id),
+            "title": n.title,
+            "content": n.content,
+            "attachment_url": n.attachment_url,
+            "attachment_type": n.attachment_type,
+            "external_link": n.external_link,
+            "created_by": str(n.created_by),
+            "created_at": n.created_at.replace(tzinfo=timezone.utc) if n.created_at.tzinfo is None else n.created_at,
+            "message": n.message,
+            "is_read": n.is_read,
+            "notification_type": "announcement"
+        }
+        for n in announcement_notifications
+    ]
+
+    # 3️⃣ Gabungkan & urut berdasarkan created_at
+    all_notifications = ticket_data + announcement_data
+    all_notifications.sort(key=lambda x: x["created_at"], reverse=True)
+
     return {
         "status": "success",
-        "count": len(notifications),
-        "data": [
-            {
-                "notification_id": str(n.notification_id),
-                "ticket_id": str(n.ticket_id) if n.ticket_id else None,
-                "ticket_code": n.ticket_code,
-                "request_type": n.request_type,
-                "opd_id_tiket": str(n.opd_id_tiket),
-                "nama_dinas": n.nama_dinas,
-                "rejection_reason_seksi": n.rejection_reason_seksi,
-                "status_ticket_pengguna": n.status,
-                "message": n.message,
-                "is_read": n.is_read,
-                "created_at": n.created_at
-            }
-            for n in notifications
-        ]
+        "count": len(all_notifications),
+        "data": all_notifications
     }
+
 
 @router.get("/notifications/{notification_id}")
 def get_notification_by_id(
@@ -894,55 +958,76 @@ def get_notification_by_id(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user_universal)
 ):
+    # Convert user_id ke UUID
+    try:
+        user_uuid = UUID(current_user["id"])
+    except ValueError:
+        raise HTTPException(status_code=400, detail="User ID tidak valid")
 
-    user_id = current_user["id"]
+    try:
+        notif_uuid = UUID(notification_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Notification ID tidak valid")
 
-    notif = (
-        db.query(
-            Notifications.id.label("notification_id"),
-            Notifications.ticket_id,
-            Notifications.message,
-            Notifications.status,
-            Notifications.is_read,
-            Notifications.created_at,
-            Tickets.rejection_reason_seksi,
-            Tickets.ticket_code,
-            Tickets.request_type,
-            Tickets.opd_id_tickets.label("opd_id_tiket"),
-            Tickets.status_ticket_pengguna,
-            Dinas.nama.label("nama_dinas")
-        )
-        .join(Tickets, Tickets.ticket_id == Notifications.ticket_id)
-        .join(Dinas, Dinas.id == Tickets.opd_id_tickets)
-        .filter(
-            Notifications.id == notification_id,
-            Notifications.user_id == user_id     
-        )
-        .first()
-    )
+    notif = db.query(Notifications).filter(
+        Notifications.id == notif_uuid,
+        Notifications.user_id == user_uuid
+    ).first()
 
     if not notif:
-        raise HTTPException(
-            status_code=404,
-            detail="Notification tidak ditemukan atau tidak milik Anda"
-        )
+        raise HTTPException(status_code=404, detail="Notification tidak ditemukan atau tidak milik Anda")
 
-    return {
-        "status": "success",
-        "data": {
-            "notification_id": str(notif.notification_id),
-            "ticket_id": str(notif.ticket_id) if notif.ticket_id else None,
-            "ticket_code": notif.ticket_code,
-            "request_type": notif.request_type,
-            "opd_id_tiket": str(notif.opd_id_tiket),
-            "nama_dinas": notif.nama_dinas,
-            "rejection_reason_seksi": notif.rejection_reason_seksi,
-            "status_ticket_pengguna": notif.status,
-            "message": notif.message,
-            "is_read": notif.is_read,
-            "created_at": notif.created_at
+    if notif.notification_type == "ticket" or (notif.notification_type is None and notif.ticket_id is not None):
+        ticket = db.query(Tickets).filter(Tickets.ticket_id == notif.ticket_id).first()
+
+        return {
+            "status": "success",
+            "data": {
+                "notification_id": str(notif.id),
+                "ticket_id": str(notif.ticket_id) if notif.ticket_id else None,
+                "ticket_code": ticket.ticket_code if ticket else None,
+                "request_type": ticket.request_type if ticket else None,
+                "opd_id_tiket": str(ticket.opd_id_tickets) if ticket else None,
+                "nama_dinas": ticket.opd.nama if ticket and hasattr(ticket, "opd") and ticket.opd else None,
+                "rejection_reason_seksi": ticket.rejection_reason_seksi if ticket else None,
+                "status_ticket_pengguna": ticket.status_ticket_pengguna if ticket else None,
+                "message": notif.message,
+                "is_read": notif.is_read,
+                "created_at": notif.created_at.replace(tzinfo=timezone.utc) if notif.created_at else None,
+                "notification_type": "ticket"
+            }
         }
-    }
+
+
+    elif notif.notification_type == "announcement":
+        ann = db.query(Announcements).filter(
+            Announcements.id == notif.announcement_id,
+            Announcements.is_active == True
+        ).first()
+
+        if not ann:
+            raise HTTPException(status_code=404, detail="Announcement tidak ditemukan atau tidak aktif")
+
+        return {
+            "status": "success",
+            "data": {
+                "notification_id": str(notif.id),
+                "announcement_id": str(notif.announcement_id),
+                "title": ann.title,
+                "content": ann.content,
+                "attachment_url": ann.attachment_url,
+                "attachment_type": ann.attachment_type,
+                "external_link": ann.external_link,
+                "created_by": str(ann.created_by),
+                "created_at": ann.created_at.replace(tzinfo=timezone.utc) if ann.created_at else None,
+                "message": notif.message,
+                "is_read": notif.is_read,
+                "notification_type": "announcement"
+            }
+        }
+
+    raise HTTPException(status_code=400, detail="Tipe notifikasi tidak valid")
+
 
 @router.delete("/notifications/{notification_id}")
 def delete_notification(

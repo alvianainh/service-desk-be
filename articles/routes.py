@@ -12,6 +12,7 @@ import os
 import mimetypes
 from uuid import uuid4
 from supabase import create_client
+from datetime import datetime
 
 router = APIRouter(prefix="/articles", tags=["articles"])
 
@@ -27,6 +28,11 @@ class ArticleData(BaseModel):
     status: str
     cover_path: Optional[str]
     tags: List[str] = []
+    created_at: datetime
+    status_admin_opd: Optional[str]   # ✅ tambahkan ini
+    status_admin_kota: Optional[str]  # ✅ tambahkan ini
+
+
 
     class Config:
         orm_mode = True
@@ -134,7 +140,9 @@ async def create_article(
     new_article = Articles(
         title=title,
         content=content,
-        status="pending_review",
+        status="pending_review",          # status global
+        status_admin_opd="menunggu review",  # untuk tracking review admin opd
+        status_admin_kota="draft",        # untuk tracking status admin kota
         makes_by_id=current_user["id"],
         cover_path=final_cover_path
     )
@@ -162,7 +170,9 @@ async def create_article(
             "status": new_article.status,
             "cover_path": new_article.cover_path,
             "tags": tag_names,
-            "created_at": new_article.created_at
+            "created_at": new_article.created_at,
+            "status_admin_opd": new_article.status_admin_opd,
+            "status_admin_kota": new_article.status_admin_kota
         }
     }
 
@@ -254,35 +264,116 @@ async def verify_article(
 ):
     roles = current_user.get("role_name", [])
 
+
     if "diskominfo" not in roles:
-        raise HTTPException(status_code=403, detail="Unauthorized: Only admin_kota can verify articles")
+        raise HTTPException(
+            status_code=403,
+            detail="Unauthorized: Only admin_kota can verify articles"
+        )
+
+    current_user_id = current_user["id"]
 
     article = db.query(Articles).filter(Articles.article_id == article_id).first()
     if not article:
         raise HTTPException(status_code=404, detail="Article not found")
 
-    if decision not in ["approve", "reject"]:
-        raise HTTPException(status_code=400, detail="Invalid decision. Must be 'approve' or 'reject'")
+    valid_decisions = ["review", "approve", "reject"]
+    if decision not in valid_decisions:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid decision. Must be one of {valid_decisions}"
+        )
 
+    # Aturan final status
     if article.status in ["approved", "rejected"]:
+        # Tidak bisa diubah lagi
         raise HTTPException(
             status_code=400,
             detail=f"Cannot change article status. Article has already been {article.status}"
         )
 
-    article.status = "approved" if decision == "approve" else "rejected"
-    article.approved_id = current_user["id"]
+    # Update status sesuai keputusan admin kota
+    if decision == "review":
+        article.status_admin_kota = "review"
+        article.status = "review"
+        # status_admin_opd tetap apa adanya
+    elif decision == "approve":
+        article.status_admin_kota = "approved"
+        article.status = "approved"
+        article.status_admin_opd = "approved"
+        article.approved_id = current_user["id"]
+    elif decision == "reject":
+        article.status_admin_kota = "rejected"
+        article.status = "rejected"
+        article.status_admin_opd = "rejected"
+        article.approved_id = current_user["id"]
+
     db.commit()
     db.refresh(article)
 
-    return {"message": f"Article has been {article.status}"}
+    return {
+        "message": f"Article status has been updated to '{article.status}'",
+        "data": {
+            "article_id": str(article.article_id),
+            "status": article.status,
+            "status_admin_kota": article.status_admin_kota,
+            "status_admin_opd": article.status_admin_opd,
+            "approved_id": str(article.approved_id) if article.approved_id else None
+        }
+    }
+
+@router.put("/{article_id}/publish")
+async def publish_article(
+    article_id: str,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user_universal)
+):
+    # Cek role admin kota
+    roles = current_user.get("role_name", [])
+    if "diskominfo" not in roles:
+        raise HTTPException(
+            status_code=403,
+            detail="Unauthorized: Only admin_kota can publish articles"
+        )
+    
+    current_user_id = current_user["id"]
+
+    # Ambil article
+    article = db.query(Articles).filter(Articles.article_id == article_id).first()
+    if not article:
+        raise HTTPException(status_code=404, detail="Article not found")
+    
+    # Cek apakah article sudah final
+    if article.status not in ["approved"]:
+        raise HTTPException(
+            status_code=400,
+            detail="Article must be approved before publishing"
+        )
+    
+    # Update semua status menjadi published
+    article.status = "published"
+    article.status_admin_kota = "published"
+    article.status_admin_opd = "published"
+
+    db.commit()
+    db.refresh(article)
+
+    return {
+        "message": f"Article has been published",
+        "data": {
+            "article_id": str(article.article_id),
+            "status": article.status,
+            "status_admin_kota": article.status_admin_kota,
+            "status_admin_opd": article.status_admin_opd
+        }
+    }
 
 
 @router.get("/", response_model=list)
 async def get_public_articles(db: Session = Depends(get_db)):
     articles = (
         db.query(Articles)
-        .filter(Articles.status == "approved")
+        .filter(Articles.status == "published")
         .order_by(Articles.created_at.desc())
         .all()
     )
@@ -423,7 +514,8 @@ async def get_all_articles(
             "status": a.status,
             "cover_path": a.cover_path,
             "created_at": a.created_at,
-            "tags": tags_data
+            "tags": tags_data,
+            "status_admin_kota": a.status_admin_kota
         })
 
     return {

@@ -1,12 +1,12 @@
 import logging
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status, Response, Query
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status, Response, Query, Path
 from sqlalchemy.orm import Session
-from datetime import datetime, time, timedelta
+from datetime import datetime, time, timedelta, timezone
 from . import models, schemas
 from auth.database import get_db
 from auth.auth import get_current_user, get_user_by_email, get_current_user_masyarakat, get_current_user_universal
 from tickets import models, schemas
-from tickets.models import Tickets, TicketAttachment, TicketCategories, TicketUpdates, TeknisiTags, TeknisiLevels, TicketRatings, WarRoom, WarRoomOPD, WarRoomSeksi, TicketServiceRequests
+from tickets.models import Tickets, TicketAttachment, TicketCategories, TicketUpdates, TeknisiTags, TeknisiLevels, TicketRatings, WarRoom, WarRoomOPD, WarRoomSeksi, TicketServiceRequests, Notifications, Announcements
 from tickets.schemas import TicketCreateSchema, TicketResponseSchema, TicketCategorySchema, TicketForSeksiSchema, TicketTrackResponse, UpdatePriority, ManualPriority, RejectReasonSeksi, RejectReasonBidang, AssignTeknisiSchema
 import uuid
 from auth.models import Opd, Dinas, Roles, Users
@@ -237,6 +237,218 @@ def add_ticket_history(
     db.refresh(history)
 
     return history
+
+
+@router.get("/notifications-all/admin-dinas")
+def get_admin_dinas_notifications(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user_universal)
+):
+    # ✅ Cek role admin dinas
+    if current_user.get("role_name") != "admin dinas":
+        raise HTTPException(403, "Akses ditolak: hanya admin dinas yang dapat melihat notifikasi")
+
+    try:
+        admin_uuid = UUID(current_user["id"])
+    except ValueError:
+        raise HTTPException(400, "User ID tidak valid")
+
+    opd_id = current_user.get("dinas_id")
+    now = datetime.utcnow()
+
+    # 1️⃣ SLA Warning: semua tiket di OPD belum selesai & ada pengerjaan awal & akhir
+    tickets = db.query(Tickets).filter(
+        Tickets.opd_id_tickets == opd_id,
+        Tickets.status != "selesai",
+        Tickets.pengerjaan_awal.isnot(None),
+        Tickets.pengerjaan_akhir.isnot(None)
+    ).all()
+
+    for ticket in tickets:
+        if not ticket.ticket_id:
+            continue
+        total_duration = (ticket.pengerjaan_akhir - ticket.pengerjaan_awal).total_seconds()
+        elapsed = (now - ticket.pengerjaan_awal).total_seconds()
+        if total_duration <= 0:
+            continue
+        progress = elapsed / total_duration
+
+        if progress >= 0.75:
+            existing = db.query(Notifications).filter_by(
+                ticket_id=ticket.ticket_id,
+                user_id=admin_uuid,
+                status="SLA Warning"
+            ).first()
+            if not existing:
+                teknisi = str(ticket.assigned_teknisi_id) if ticket.assigned_teknisi_id else "Belum ditugaskan"
+                db.add(Notifications(
+                    user_id=admin_uuid,
+                    ticket_id=ticket.ticket_id,
+                    message=f"PERINGATAN: 75% waktu pengerjaan tiket {ticket.ticket_code or 'N/A'} oleh teknisi {teknisi} sudah lewat tapi belum selesai!",
+                    status="SLA Warning",
+                    is_read=False,
+                    created_at=now,
+                    notification_type="ticket"
+                ))
+                db.commit()
+
+    # 2️⃣ Notifikasi tiket (termasuk SLA warning)
+    ticket_notifications = (
+        db.query(
+            Notifications.id.label("notification_id"),
+            Notifications.ticket_id,
+            Notifications.message,
+            Notifications.status,
+            Notifications.is_read,
+            Notifications.created_at,
+            Tickets.rejection_reason_seksi,
+            Tickets.ticket_code,
+            Tickets.request_type,
+            Tickets.opd_id_tickets.label("opd_id_tiket"),
+            Tickets.status_ticket_pengguna,
+            Dinas.nama.label("nama_dinas")
+        )
+        .join(Tickets, Tickets.ticket_id == Notifications.ticket_id)
+        .join(Dinas, Dinas.id == Tickets.opd_id_tickets)
+        .filter(Notifications.user_id == admin_uuid, Tickets.opd_id_tickets == opd_id)
+        .order_by(Notifications.created_at.desc())
+        .all()
+    )
+
+    ticket_data = [
+        {
+            "notification_id": str(n.notification_id),
+            "ticket_id": str(n.ticket_id) if n.ticket_id else None,
+            "ticket_code": n.ticket_code,
+            "request_type": n.request_type,
+            "opd_id_tiket": str(n.opd_id_tiket),
+            "nama_dinas": n.nama_dinas,
+            "rejection_reason_seksi": n.rejection_reason_seksi,
+            "status_ticket_pengguna": n.status_ticket_pengguna,
+            "message": n.message,
+            "is_read": n.is_read,
+            "created_at": n.created_at.replace(tzinfo=timezone.utc) if n.created_at.tzinfo is None else n.created_at,
+            "notification_type": "ticket"
+        }
+        for n in ticket_notifications
+    ]
+
+    # 3️⃣ Notifikasi pengumuman
+    announcement_notifications = (
+        db.query(
+            Notifications.id.label("notification_id"),
+            Notifications.announcement_id,
+            Notifications.message,
+            Notifications.is_read,
+            Notifications.created_at,
+            Announcements.title,
+            Announcements.content,
+            Announcements.attachment_url,
+            Announcements.attachment_type,
+            Announcements.external_link,
+            Announcements.created_by
+        )
+        .join(Announcements, Announcements.id == Notifications.announcement_id)
+        .filter(
+            Notifications.user_id == admin_uuid,
+            Notifications.notification_type == "announcement",
+            Announcements.is_active == True
+        )
+        .order_by(Notifications.created_at.desc())
+        .all()
+    )
+
+    announcement_data = [
+        {
+            "notification_id": str(n.notification_id),
+            "announcement_id": str(n.announcement_id),
+            "title": n.title,
+            "content": n.content,
+            "attachment_url": n.attachment_url,
+            "attachment_type": n.attachment_type,
+            "external_link": n.external_link,
+            "created_by": str(n.created_by),
+            "created_at": n.created_at.replace(tzinfo=timezone.utc) if n.created_at.tzinfo is None else n.created_at,
+            "message": n.message,
+            "is_read": n.is_read,
+            "notification_type": "announcement"
+        }
+        for n in announcement_notifications
+    ]
+
+    # 4️⃣ Gabungkan & urut berdasarkan created_at
+    all_notifications = ticket_data + announcement_data
+    all_notifications.sort(key=lambda x: x["created_at"], reverse=True)
+
+    total = len(all_notifications)
+    unread = sum(1 for n in all_notifications if not n["is_read"])
+
+    return {
+        "status": "success",
+        "total_notifications": total,
+        "unread_notifications": unread,
+        "data": all_notifications
+    }
+
+@router.get("/notifications/admin-dinas/{notification_id}")
+def get_admin_dinas_notification_by_id(
+    notification_id: str = Path(..., description="ID notifikasi"),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user_universal)
+):
+    # ✅ Cek role
+    if current_user.get("role_name") != "admin dinas":
+        raise HTTPException(403, "Akses ditolak: hanya admin dinas yang dapat melihat notifikasi")
+
+    try:
+        notif_uuid = UUID(notification_id)
+        admin_uuid = UUID(current_user["id"])
+    except ValueError:
+        raise HTTPException(400, "ID notifikasi atau user tidak valid")
+
+    # Ambil notifikasi
+    notif = db.query(Notifications).filter(
+        Notifications.id == notif_uuid,
+        Notifications.user_id == admin_uuid
+    ).first()
+
+    if not notif:
+        raise HTTPException(404, "Notifikasi tidak ditemukan")
+
+    # Detail tergantung tipe notifikasi
+    data = {
+        "notification_id": str(notif.id),
+        "message": notif.message,
+        "status": notif.status,
+        "is_read": notif.is_read,
+        "created_at": notif.created_at.replace(tzinfo=timezone.utc) if notif.created_at.tzinfo is None else notif.created_at,
+        "notification_type": notif.notification_type
+    }
+
+    if notif.notification_type == "ticket" and notif.ticket:
+        opd = db.query(Dinas.nama).filter(Dinas.id == notif.ticket.opd_id_tickets).first()
+        data.update({
+            "ticket_id": str(notif.ticket.ticket_id),
+            "ticket_code": notif.ticket.ticket_code,
+            "request_type": notif.ticket.request_type,
+            "opd_id_tiket": str(notif.ticket.opd_id_tickets),
+            "nama_dinas": opd.nama if opd else None,
+            "rejection_reason_seksi": notif.ticket.rejection_reason_seksi,
+            "status_ticket_pengguna": notif.ticket.status_ticket_pengguna,
+            "assigned_teknisi_id": str(notif.ticket.assigned_teknisi_id) if notif.ticket.assigned_teknisi_id else None
+        })
+    elif notif.notification_type == "announcement" and notif.announcement:
+        data.update({
+            "announcement_id": str(notif.announcement.id),
+            "title": notif.announcement.title,
+            "content": notif.announcement.content,
+            "attachment_url": notif.announcement.attachment_url,
+            "attachment_type": notif.announcement.attachment_type,
+            "external_link": notif.announcement.external_link,
+            "created_by": str(notif.announcement.created_by)
+        })
+
+    return {"status": "success", "data": data}
 
 
 @router.get("/admin-opd/ratings")

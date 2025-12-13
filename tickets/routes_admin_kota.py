@@ -2023,7 +2023,6 @@ def create_announcement(
             detail="Akses ditolak: hanya admin kota."
         )
 
-    # ✅ ambil user id yang BENAR
     user_id = current_user.get("id") or current_user.get("user_id")
 
     if not user_id:
@@ -2048,12 +2047,31 @@ def create_announcement(
         external_link=external_link,
         attachment_url=attachment_url,
         attachment_type=attachment_type,
-        created_by=UUID(user_id)  # ✅ FIX UTAMA
+        created_by=UUID(user_id)
     )
 
     db.add(announcement)
     db.commit()
     db.refresh(announcement)
+
+    roles_to_notify = ["masyarakat", "seksi", "bidang", "teknisi", "admin dinas"]
+    users_to_notify = (
+        db.query(Users)
+        .join(Roles, Users.role_id == Roles.role_id)
+        .filter(Roles.role_name.in_(roles_to_notify))
+        .all()
+    )
+
+    for u in users_to_notify:
+        notif = models.Notifications(
+            user_id=u.id,
+            announcement_id=announcement.id,
+            notification_type="announcement",
+            message=f"Pengumuman baru: {announcement.title}"
+        )
+        db.add(notif)
+
+    db.commit()
 
     return {
         "message": "Pengumuman berhasil dibuat",

@@ -1,12 +1,12 @@
 import logging
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status, Response, Header
 from sqlalchemy.orm import Session
-from datetime import datetime, time
+from datetime import datetime, time, timezone
 from . import models, schemas
 from auth.database import get_db
 from auth.auth import get_current_user, get_user_by_email, get_current_user_masyarakat, get_current_user_universal
 from tickets import models, schemas
-from tickets.models import Tickets, TicketAttachment, TicketCategories, TicketUpdates, TeknisiTags, TeknisiLevels, TicketRatings, WarRoom, WarRoomOPD, WarRoomSeksi, Notifications, TicketServiceRequests, Notifications
+from tickets.models import Tickets, TicketAttachment, TicketCategories, TicketUpdates, TeknisiTags, TeknisiLevels, TicketRatings, WarRoom, WarRoomOPD, WarRoomSeksi, Notifications, TicketServiceRequests, Notifications, Announcements
 from tickets.schemas import TicketCreateSchema, TicketResponseSchema, TicketCategorySchema, TicketForSeksiSchema, TicketTrackResponse, UpdatePriority, ManualPriority, RejectReasonSeksi, RejectReasonBidang, AssignTeknisiSchema
 import uuid
 from auth.models import Opd, Dinas, Roles, Users
@@ -304,27 +304,102 @@ def get_seksi_notifications(
     if current_user.get("role_name") != "seksi":
         raise HTTPException(403, "Akses ditolak: hanya seksi yang dapat melihat notifikasi")
 
-    notifications = (
-        db.query(models.Notifications)
-        .filter(models.Notifications.user_id == current_user["id"])
-        .order_by(models.Notifications.created_at.desc())
+    user_id = current_user["id"]
+
+    # 1️⃣ Notif tiket
+    ticket_notifications = (
+        db.query(
+            Notifications.id.label("notification_id"),
+            Notifications.ticket_id,
+            Notifications.message,
+            Notifications.status,
+            Notifications.is_read,
+            Notifications.created_at,
+            Tickets.rejection_reason_seksi,
+            Tickets.ticket_code,
+            Tickets.request_type,
+            Tickets.opd_id_tickets.label("opd_id_tiket"),
+            Tickets.status_ticket_pengguna,
+            Dinas.nama.label("nama_dinas")
+        )
+        .join(Tickets, Tickets.ticket_id == Notifications.ticket_id)
+        .join(Dinas, Dinas.id == Tickets.opd_id_tickets)
+        .filter(Notifications.user_id == user_id)
+        .order_by(Notifications.created_at.desc())
         .all()
     )
 
-    results = []
-    for n in notifications:
-        ticket = db.query(models.Tickets).filter(models.Tickets.ticket_id == n.ticket_id).first()
-        results.append({
-            "notification_id": str(n.id),
+    ticket_data = [
+        {
+            "notification_id": str(n.notification_id),
             "ticket_id": str(n.ticket_id) if n.ticket_id else None,
-            "ticket_code": ticket.ticket_code if ticket else None,
+            "ticket_code": n.ticket_code,
+            "request_type": n.request_type,
+            "opd_id_tiket": str(n.opd_id_tiket),
+            "nama_dinas": n.nama_dinas,
+            "rejection_reason_seksi": n.rejection_reason_seksi,
+            "status_ticket_pengguna": n.status_ticket_pengguna,
             "message": n.message,
-            "status": n.status,
             "is_read": n.is_read,
-            "created_at": n.created_at
-        })
+            "created_at": n.created_at.replace(tzinfo=timezone.utc) if n.created_at.tzinfo is None else n.created_at,
+            "notification_type": "ticket"
+        }
+        for n in ticket_notifications
+    ]
 
-    return {"total": len(results), "data": results}
+    # 2️⃣ Notif pengumuman
+    announcement_notifications = (
+        db.query(
+            Notifications.id.label("notification_id"),
+            Notifications.announcement_id,
+            Notifications.message,
+            Notifications.is_read,
+            Notifications.created_at,
+            Announcements.title,
+            Announcements.content,
+            Announcements.attachment_url,
+            Announcements.attachment_type,
+            Announcements.external_link,
+            Announcements.created_by
+        )
+        .join(Announcements, Announcements.id == Notifications.announcement_id)
+        .filter(
+            Notifications.user_id == user_id,
+            Notifications.notification_type == "announcement",
+            Announcements.is_active == True
+        )
+        .order_by(Notifications.created_at.desc())
+        .all()
+    )
+
+    announcement_data = [
+        {
+            "notification_id": str(n.notification_id),
+            "announcement_id": str(n.announcement_id),
+            "title": n.title,
+            "content": n.content,
+            "attachment_url": n.attachment_url,
+            "attachment_type": n.attachment_type,
+            "external_link": n.external_link,
+            "created_by": str(n.created_by),
+            "created_at": n.created_at.replace(tzinfo=timezone.utc) if n.created_at.tzinfo is None else n.created_at,
+            "message": n.message,
+            "is_read": n.is_read,
+            "notification_type": "announcement"
+        }
+        for n in announcement_notifications
+    ]
+
+    # 3️⃣ Gabungkan & urut berdasarkan created_at
+    all_notifications = ticket_data + announcement_data
+    all_notifications.sort(key=lambda x: x["created_at"], reverse=True)
+
+    return {
+        "status": "success",
+        "count": len(all_notifications),
+        "data": all_notifications
+    }
+
 
 @router.get("/notifications/seksi/{notification_id}")
 def get_seksi_notification_by_id(
@@ -335,31 +410,67 @@ def get_seksi_notification_by_id(
     if current_user.get("role_name") != "seksi":
         raise HTTPException(403, "Akses ditolak: hanya seksi yang dapat melihat notifikasi")
 
-    # Ambil notif berdasarkan ID dan user
-    notif = db.query(models.Notifications).filter(
-        models.Notifications.id == notification_id,
-        models.Notifications.user_id == current_user["id"]
+    # Convert UUID
+    try:
+        notif_uuid = UUID(notification_id)
+        user_uuid = UUID(current_user["id"])
+    except ValueError:
+        raise HTTPException(400, "ID tidak valid")
+
+    # Ambil notif dari tabel Notifications
+    notif = db.query(Notifications).filter(
+        Notifications.id == notif_uuid,
+        Notifications.user_id == user_uuid
     ).first()
 
     if not notif:
-        raise HTTPException(404, "Notifikasi tidak ditemukan")
+        raise HTTPException(404, "Notifikasi tidak ditemukan atau tidak milik Anda")
 
-    # Ambil data tiket jika ada
-    ticket = None
-    if notif.ticket_id:
-        ticket = db.query(models.Tickets).filter(models.Tickets.ticket_id == notif.ticket_id).first()
+    # --- Notif tiket ---
+    if notif.notification_type == "ticket" or (notif.notification_type is None and notif.ticket_id is not None):
+        ticket = db.query(Tickets).filter(Tickets.ticket_id == notif.ticket_id).first()
+        result = {
+            "notification_id": str(notif.id),
+            "ticket_id": str(notif.ticket_id) if notif.ticket_id else None,
+            "ticket_code": ticket.ticket_code if ticket else None,
+            "request_type": ticket.request_type if ticket else None,
+            "opd_id_tiket": str(ticket.opd_id_tickets) if ticket else None,
+            "nama_dinas": ticket.opd.nama if ticket and hasattr(ticket, "opd") and ticket.opd else None,
+            "rejection_reason_seksi": ticket.rejection_reason_seksi if ticket else None,
+            "status_ticket_pengguna": ticket.status_ticket_pengguna if ticket else None,
+            "message": notif.message,
+            "is_read": notif.is_read,
+            "created_at": notif.created_at.replace(tzinfo=timezone.utc) if notif.created_at else None,
+            "notification_type": "ticket"
+        }
+        return {"status": "success", "data": result}
 
-    result = {
-        "notification_id": str(notif.id),
-        "ticket_id": str(notif.ticket_id) if notif.ticket_id else None,
-        "ticket_code": ticket.ticket_code if ticket else None,
-        "message": notif.message,
-        "status": notif.status,
-        "is_read": notif.is_read,
-        "created_at": notif.created_at
-    }
+    # --- Notif pengumuman ---
+    elif notif.notification_type == "announcement":
+        ann = db.query(Announcements).filter(
+            Announcements.id == notif.announcement_id,
+            Announcements.is_active == True
+        ).first()
+        if not ann:
+            raise HTTPException(404, "Announcement tidak ditemukan atau tidak aktif")
 
-    return {"data": result}
+        result = {
+            "notification_id": str(notif.id),
+            "announcement_id": str(notif.announcement_id),
+            "title": ann.title,
+            "content": ann.content,
+            "attachment_url": ann.attachment_url,
+            "attachment_type": ann.attachment_type,
+            "external_link": ann.external_link,
+            "created_by": str(ann.created_by),
+            "created_at": ann.created_at.replace(tzinfo=timezone.utc) if ann.created_at else None,
+            "message": notif.message,
+            "is_read": notif.is_read,
+            "notification_type": "announcement"
+        }
+        return {"status": "success", "data": result}
+
+    raise HTTPException(400, "Tipe notifikasi tidak valid")
 
 @router.patch("/notifications/seksi/{notification_id}/read")
 def mark_seksi_notification_read(

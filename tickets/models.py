@@ -428,9 +428,18 @@ class Notifications(Base):
     )
     status = Column(String, nullable=True)
 
+    notification_type = Column(String(30), nullable=False)
+    status = Column(String(50), nullable=True)
+
     ticket_id = Column(
         UUID(as_uuid=True),
         ForeignKey("tickets.ticket_id", ondelete="SET NULL"),
+        nullable=True
+    )
+
+    announcement_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("announcements.id", ondelete="CASCADE"),
         nullable=True
     )
 
@@ -438,6 +447,20 @@ class Notifications(Base):
     is_read = Column(Boolean, default=False)
 
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+    user = relationship(
+        "Users",
+        backref="notifications"
+    )
+
+    ticket = relationship(
+        "Tickets",
+        backref="notifications"
+    )
+
+    announcement = relationship(
+        "Announcements",
+        backref="notifications"
+    )
 
 
 class Announcements(Base):

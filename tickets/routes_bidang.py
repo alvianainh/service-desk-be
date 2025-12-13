@@ -223,42 +223,43 @@ def get_bidang_notifications(
     current_user: dict = Depends(get_current_user_universal)
 ):
     if current_user.get("role_name") != "bidang":
-        raise HTTPException(
-            status_code=403,
-            detail="Akses ditolak: hanya bidang yang dapat melihat notifikasi ini"
-        )
+        raise HTTPException(403, "Akses ditolak: hanya bidang yang dapat melihat notifikasi ini")
+
+    try:
+        user_uuid = UUID(current_user["id"])
+    except ValueError:
+        raise HTTPException(400, "User ID tidak valid")
 
     opd_id = current_user.get("dinas_id")
-    user_id = current_user.get("id")
 
     # Query notifikasi yang terkait tiket verified by seksi
-    notifications_query = (
-        db.query(models.Notifications)
-        .join(models.Tickets, models.Notifications.ticket_id == models.Tickets.ticket_id)
+    notifications = (
+        db.query(Notifications)
+        .join(Tickets, Notifications.ticket_id == Tickets.ticket_id)
         .filter(
-            Notifications.user_id == user_id,
-            models.Tickets.status == "verified by seksi",
-            models.Tickets.opd_id_tickets == opd_id
+            Notifications.user_id == user_uuid,
+            Tickets.status == "verified by seksi",
+            Tickets.opd_id_tickets == opd_id
         )
         .order_by(Notifications.created_at.desc())
+        .all()
     )
-
-    notifications = notifications_query.all()
-    total_notifications = notifications_query.count()
 
     result = []
     for notif in notifications:
+        ticket = db.query(Tickets).filter(Tickets.ticket_id == notif.ticket_id).first()
         result.append({
-            "id": str(notif.id),
-            "ticket_id": str(notif.ticket_id),
+            "notification_id": str(notif.id),
+            "ticket_id": str(notif.ticket_id) if notif.ticket_id else None,
+            "ticket_code": ticket.ticket_code if ticket else None,
             "message": notif.message,
             "status": notif.status,
             "is_read": notif.is_read,
-            "created_at": notif.created_at
+            "created_at": notif.created_at.replace(tzinfo=timezone.utc) if notif.created_at else None
         })
 
     return {
-        "total_notifications": total_notifications,
+        "total_notifications": len(result),
         "notifications": result
     }
 
@@ -269,40 +270,45 @@ def get_bidang_notification_by_id(
     current_user: dict = Depends(get_current_user_universal)
 ):
     if current_user.get("role_name") != "bidang":
-        raise HTTPException(
-            status_code=403,
-            detail="Akses ditolak: hanya bidang yang dapat melihat notifikasi ini"
-        )
+        raise HTTPException(403, "Akses ditolak: hanya bidang yang dapat melihat notifikasi ini")
+
+    try:
+        notif_uuid = UUID(notification_id)
+        user_uuid = UUID(current_user["id"])
+    except ValueError:
+        raise HTTPException(400, "ID tidak valid")
 
     opd_id = current_user.get("dinas_id")
-    user_id = current_user.get("id")
 
     # Ambil notif berdasarkan ID, user, dan tiket yang verified by seksi & sesuai opd
     notif = (
-        db.query(models.Notifications)
-        .join(models.Tickets, models.Notifications.ticket_id == models.Tickets.ticket_id)
+        db.query(Notifications)
+        .join(Tickets, Notifications.ticket_id == Tickets.ticket_id)
         .filter(
-            Notifications.id == notification_id,
-            Notifications.user_id == user_id,
-            models.Tickets.status == "verified by seksi",
-            models.Tickets.opd_id_tickets == opd_id
+            Notifications.id == notif_uuid,
+            Notifications.user_id == user_uuid,
+            Tickets.status == "verified by seksi",
+            Tickets.opd_id_tickets == opd_id
         )
         .first()
     )
 
     if not notif:
-        raise HTTPException(404, "Notifikasi tidak ditemukan")
+        raise HTTPException(404, "Notifikasi tidak ditemukan atau tidak milik Anda")
+
+    ticket = db.query(Tickets).filter(Tickets.ticket_id == notif.ticket_id).first()
 
     result = {
         "notification_id": str(notif.id),
-        "ticket_id": str(notif.ticket_id),
+        "ticket_id": str(notif.ticket_id) if notif.ticket_id else None,
+        "ticket_code": ticket.ticket_code if ticket else None,
         "message": notif.message,
         "status": notif.status,
         "is_read": notif.is_read,
-        "created_at": notif.created_at
+        "created_at": notif.created_at.replace(tzinfo=timezone.utc) if notif.created_at else None
     }
 
-    return {"data": result}
+    return {"status": "success", "data": result}
 
 @router.patch("/notifications/bidang/{notification_id}/read")
 def mark_bidang_notification_read(

@@ -1,12 +1,12 @@
 import logging
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status, Response, Header, Query
 from sqlalchemy.orm import Session
-from datetime import datetime, time
+from datetime import datetime, time, timezone
 from . import models, schemas
 from auth.database import get_db
 from auth.auth import get_current_user, get_user_by_email, get_current_user_masyarakat, get_current_user_universal
 from tickets import models, schemas
-from tickets.models import Tickets, TicketAttachment, TicketCategories, TicketUpdates, TeknisiTags, TeknisiLevels, TicketRatings, Notifications, RFCIncidentRepeat, RFCChangeRequest
+from tickets.models import Tickets, TicketAttachment, TicketCategories, TicketUpdates, TeknisiTags, TeknisiLevels, TicketRatings, Notifications, RFCIncidentRepeat, RFCChangeRequest, Announcements
 from tickets.schemas import TicketCreateSchema, TicketResponseSchema, TicketCategorySchema, TicketForSeksiSchema, TicketTrackResponse, UpdatePriority, ManualPriority, RejectReasonSeksi, RejectReasonBidang, AssignTeknisiSchema, RFCIncidentRepeatSchema, RFCChangeRequestSchema, RejectTicketPayload
 import uuid
 from auth.models import Opd, Dinas, Roles, Users
@@ -304,11 +304,16 @@ def get_teknisi_notifications(
     if current_user.get("role_name") != "teknisi":
         raise HTTPException(403, "Hanya teknisi yang bisa melihat notifikasi ini")
 
-    teknisi_id = current_user.get("id")
+    try:
+        teknisi_uuid = UUID(current_user["id"])
+    except ValueError:
+        raise HTTPException(400, "User ID tidak valid")
+
     now = datetime.utcnow()
 
+    # Generate SLA warning jika perlu
     tickets = db.query(Tickets).filter(
-        Tickets.assigned_teknisi_id == teknisi_id,
+        Tickets.assigned_teknisi_id == teknisi_uuid,
         Tickets.status != "selesai",
         Tickets.pengerjaan_awal.isnot(None),
         Tickets.pengerjaan_akhir.isnot(None)
@@ -324,12 +329,12 @@ def get_teknisi_notifications(
         if progress >= 0.75:
             existing = db.query(Notifications).filter_by(
                 ticket_id=ticket.ticket_id,
-                user_id=teknisi_id,
+                user_id=teknisi_uuid,
                 status="SLA Warning"
             ).first()
             if not existing:
                 db.add(Notifications(
-                    user_id=teknisi_id,
+                    user_id=teknisi_uuid,
                     ticket_id=ticket.ticket_id,
                     message=f"PERINGATAN: 75% waktu pengerjaan tiket {ticket.ticket_code} sudah lewat, tapi belum selesai!",
                     status="SLA Warning",
@@ -338,17 +343,17 @@ def get_teknisi_notifications(
                 ))
                 db.commit()
 
-    notifications = db.query(Notifications).filter_by(
-        user_id=teknisi_id
+    notifications = db.query(Notifications).filter(
+        Notifications.user_id == teknisi_uuid
     ).order_by(Notifications.created_at.desc()).all()
 
     result = [{
-        "id": str(n.id),
-        "ticket_id": str(n.ticket_id),
+        "notification_id": str(n.id),
+        "ticket_id": str(n.ticket_id) if n.ticket_id else None,
         "message": n.message,
         "status": n.status,
         "is_read": n.is_read,
-        "created_at": n.created_at
+        "created_at": n.created_at.replace(tzinfo=timezone.utc) if n.created_at else None
     } for n in notifications]
 
     total = len(result)
@@ -360,6 +365,7 @@ def get_teknisi_notifications(
         "notifications": result
     }
 
+
 @router.get("/notifications/teknisi/{notification_id}")
 def get_teknisi_notification_by_id(
     notification_id: str,
@@ -369,14 +375,23 @@ def get_teknisi_notification_by_id(
     if current_user.get("role_name") != "teknisi":
         raise HTTPException(403, "Hanya teknisi yang bisa melihat notifikasi ini")
 
+    # Convert UUID
+    try:
+        notif_uuid = UUID(notification_id)
+        user_uuid = UUID(current_user["id"])
+    except ValueError:
+        raise HTTPException(400, "ID tidak valid")
+
+    # Ambil notif
     notif = db.query(Notifications).filter(
-        Notifications.id == notification_id,
-        Notifications.user_id == current_user["id"]
+        Notifications.id == notif_uuid,
+        Notifications.user_id == user_uuid
     ).first()
 
     if not notif:
-        raise HTTPException(404, "Notifikasi tidak ditemukan")
+        raise HTTPException(404, "Notifikasi tidak ditemukan atau tidak milik Anda")
 
+    # Ambil data tiket jika ada
     ticket = None
     if notif.ticket_id:
         ticket = db.query(Tickets).filter(Tickets.ticket_id == notif.ticket_id).first()
@@ -388,10 +403,10 @@ def get_teknisi_notification_by_id(
         "message": notif.message,
         "status": notif.status,
         "is_read": notif.is_read,
-        "created_at": notif.created_at
+        "created_at": notif.created_at.replace(tzinfo=timezone.utc) if notif.created_at else None
     }
 
-    return {"data": result}
+    return {"status": "success", "data": result}
 
 @router.patch("/notifications/teknisi/{notification_id}/read")
 def mark_teknisi_notification_read(

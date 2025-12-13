@@ -131,6 +131,8 @@ class Articles(Base):
     makes_by_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     approved_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     cover_path = Column(String, nullable=True)
+    status_admin_opd = Column(String, nullable=True)
+    status_admin_kota = Column(String, nullable=True)
 
     makes_by = relationship("Users", foreign_keys=[makes_by_id], backref="articles_created")
     approved_by = relationship("Users", foreign_keys=[approved_id], backref="articles_approved")
