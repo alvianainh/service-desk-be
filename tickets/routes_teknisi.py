@@ -1762,6 +1762,11 @@ def get_rfc_incident_repeat_by_id(
 
     # Ambil status dari TRACE kalau ada
     status_trace = None
+    lampiran = None
+    rencana_implementasi = None
+    alasan_penolakan = None
+    rencana_rollback = None
+
     if r.trace_rfc_id:
         try:
             trace_res = requests.get(
@@ -1774,8 +1779,16 @@ def get_rfc_incident_repeat_by_id(
             if trace_res.status_code == 200:
                 trace_data = trace_res.json().get("data", {})
                 status_trace = trace_data.get("status")
+                lampiran = trace_data.get("lampiran")
+                rencana_implementasi = trace_data.get("rencana_implementasi")
+                alasan_penolakan = trace_data.get("alasan_penolakan")
+                rencana_rollback = trace_data.get("rencana_rollback")
         except Exception:
             status_trace = None
+            lampiran = None
+            rencana_implementasi = None
+            alasan_penolakan = None
+            rencana_rollback = None
 
     result = {
         "local_rfc_id": str(r.id),
@@ -1792,7 +1805,11 @@ def get_rfc_incident_repeat_by_id(
         "opd_pemohon": r.opd_pemohon,
         "risk_score_aset": r.risk_score_aset,
         "created_at": r.created_at,
-        "status_trace": status_trace
+        "status_trace": status_trace,
+        "lampiran": lampiran,
+        "rencana_implementasi": rencana_implementasi,
+        "alasan_penolakan": alasan_penolakan,
+        "rencana_rollback": rencana_rollback
     }
 
     return result
@@ -1928,6 +1945,10 @@ def get_rfc_change_requests(
     results = []
     for r in rfcs:
         status_trace = None
+        lampiran = None
+        rencana_implementasi = None
+        alasan_penolakan = None
+        rencana_rollback = None
 
         # --- Fetch status dari TRACE jika ada trace_rfc_id ---
         if r.trace_rfc_id:
@@ -1942,8 +1963,16 @@ def get_rfc_change_requests(
                 if trace_res.status_code == 200:
                     trace_data = trace_res.json().get("data", {})
                     status_trace = trace_data.get("status")
+                    lampiran = trace_data.get("lampiran")
+                    rencana_implementasi = trace_data.get("rencana_implementasi")
+                    alasan_penolakan = trace_data.get("alasan_penolakan")
+                    rencana_rollback = trace_data.get("rencana_rollback")
             except Exception:
                 status_trace = None
+                lampiran = None
+                rencana_implementasi = None
+                alasan_penolakan = None
+                rencana_rollback = None
 
         # Ambil info tiket terkait
         ticket = db.query(Tickets).filter(Tickets.ticket_id == r.ticket_id).first()
@@ -1967,6 +1996,10 @@ def get_rfc_change_requests(
             "opd_pemohon": r.opd_pemohon,
             "risk_score_aset": r.risk_score_aset,
             "status_trace": status_trace,
+            "lampiran": lampiran,
+            "rencana_implementasi": rencana_implementasi,
+            "alasan_penolakan": alasan_penolakan,
+            "rencana_rollback": rencana_rollback,
             "created_at": r.created_at,
             "ticket_status": ticket_status
         })
@@ -1999,6 +2032,11 @@ def get_rfc_change_request_by_id(
 
     # Ambil status dari TRACE
     status_trace = None
+    lampiran = None
+    rencana_implementasi = None
+    alasan_penolakan = None
+    rencana_rollback = None
+
     if rfc.trace_rfc_id:
         try:
             trace_res = requests.get(
@@ -2011,8 +2049,16 @@ def get_rfc_change_request_by_id(
             if trace_res.status_code == 200:
                 trace_data = trace_res.json().get("data", {})
                 status_trace = trace_data.get("status")
+                lampiran = trace_data.get("lampiran")
+                rencana_implementasi = trace_data.get("rencana_implementasi")
+                alasan_penolakan = trace_data.get("alasan_penolakan")
+                rencana_rollback = trace_data.get("rencana_rollback")
         except Exception:
             status_trace = None
+            lampiran = None
+            rencana_implementasi = None
+            alasan_penolakan = None
+            rencana_rollback = None
 
     # Ambil info tiket terkait
     ticket = db.query(Tickets).filter(Tickets.ticket_id == rfc.ticket_id).first()
@@ -2036,6 +2082,10 @@ def get_rfc_change_request_by_id(
         "opd_pemohon": rfc.opd_pemohon,
         "risk_score_aset": rfc.risk_score_aset,
         "status_trace": status_trace,
+        "lampiran": lampiran,
+        "rencana_implementasi": rencana_implementasi,
+        "alasan_penolakan": alasan_penolakan,
+        "rencana_rollback": rencana_rollback,
         "created_at": rfc.created_at,
         "ticket_status": ticket_status
     }
