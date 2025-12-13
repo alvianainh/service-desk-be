@@ -2030,7 +2030,6 @@ def get_rfc_change_request_by_id(
     if not rfc:
         raise HTTPException(404, "RFC Change Request tidak ditemukan")
 
-    # Ambil status dari TRACE
     status_trace = None
     lampiran = None
     rencana_implementasi = None
@@ -2060,7 +2059,7 @@ def get_rfc_change_request_by_id(
             alasan_penolakan = None
             rencana_rollback = None
 
-    # Ambil info tiket terkait
+
     ticket = db.query(Tickets).filter(Tickets.ticket_id == rfc.ticket_id).first()
     ticket_code = ticket.ticket_code if ticket else None
     ticket_status = ticket.status_ticket_seksi if ticket else None
