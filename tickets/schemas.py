@@ -214,6 +214,9 @@ class RFCChangeRequestSchema(BaseModel):
     biaya_estimasi: int
 
 
+class RejectTicketPayload(BaseModel):
+    alasan_penolakan: str
+
 # class TicketTrackResponse(BaseModel):
 #     ticket_id: UUID 
 #     status: str 

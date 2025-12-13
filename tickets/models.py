@@ -139,6 +139,7 @@ class Tickets(Base):
     pengerjaan_akhir = Column(DateTime(timezone=True), nullable=True)
     pengerjaan_awal_teknisi = Column(DateTime, nullable=True)
     pengerjaan_akhir_teknisi = Column(DateTime, nullable=True)
+    alasan_penolakan_teknisi = Column(String, nullable=True)
 
     # opd_id = Column(UUID(as_uuid=True), ForeignKey("opd.opd_id"))
     # category_id = Column(UUID(as_uuid=True), ForeignKey("ticket_categories.category_id"))

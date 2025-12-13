@@ -518,7 +518,8 @@ def get_tickets_pelaporan_online(
         # "Reopen",
         "Open",
         "verified by seksi",
-        "rejected by bidang"
+        "rejected by bidang",
+        "ditolak oleh teknisi"
     ]
 
     tickets = (
@@ -618,7 +619,8 @@ def get_tickets_pengajuan_pelayanan(
         # "Reopen",
         "Open",
         "verified by seksi",
-        "rejected by bidang"
+        "rejected by bidang",
+        "ditolak oleh teknisi"
     ]
 
     tickets = (
@@ -744,7 +746,8 @@ def get_ticket_detail_seksi(
         # "Reopen",
         "Open",           
         "verified by seksi",   
-        "rejected by bidang"   
+        "rejected by bidang",
+        "ditolak oleh teknisi"   
     ]
 
     allowed_request_types = ["pelaporan_online", "pengajuan_pelayanan"]
@@ -1232,7 +1235,7 @@ async def reject_ticket(
     #     )
 
     if not (
-        (ticket.priority is not None and ticket.status == "rejected by bidang") or
+        (ticket.priority is not None and ticket.status in ["rejected by bidang", "ditolak oleh teknisi"]) or
         (ticket.priority is None and ticket.status == "Open")
     ):
         raise HTTPException(
