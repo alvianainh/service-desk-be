@@ -977,7 +977,6 @@ async def create_asset_and_save(
     if not token:
         raise HTTPException(401, "Token user tidak tersedia")
 
-    # ======== Ambil unit kerja dan sub kategori dari backend aset ========
     headers = {"accept": "application/json", "Authorization": f"Bearer {token}"}
     async with aiohttp.ClientSession() as session:
 
@@ -1002,6 +1001,7 @@ async def create_asset_and_save(
         form_data.add_field("lokasi_id", str(lokasi_id))
         form_data.add_field("sub_kategori_id", str(sub_kategori_id))
         form_data.add_field("nama_asset", nama_aset)
+        form_data.add_field("status", "pengadaan")
 
         async with session.post(
             "https://arise-app.my.id/api/asset-barang",
