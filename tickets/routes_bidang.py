@@ -217,6 +217,34 @@ async def get_area_dampak(current_user: dict = Depends(get_current_user_universa
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.get("/assets/lokasi")
+async def get_all_lokasi():
+    async with aiohttp.ClientSession() as session:
+        async with session.get(
+            "https://arise-app.my.id/api/lokasi",
+            headers={"accept": "application/json"}
+        ) as resp:
+            if resp.status != 200:
+                raise HTTPException(
+                    resp.status,
+                    "Gagal mengambil data lokasi dari Arise"
+                )
+
+            res_json = await resp.json()
+
+            # ambil list lokasi (flatten pagination)
+            lokasi_list = (
+                res_json
+                .get("data", {})
+                .get("data", [])
+            )
+
+    return {
+        "total": len(lokasi_list),
+        "data": lokasi_list
+    }
+
+
 @router.get("/notifications/bidang")
 def get_bidang_notifications(
     db: Session = Depends(get_db),
