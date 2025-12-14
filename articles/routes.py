@@ -352,19 +352,16 @@ async def publish_article(
     
     current_user_id = current_user["id"]
 
-    # Ambil article
     article = db.query(Articles).filter(Articles.article_id == article_id).first()
     if not article:
         raise HTTPException(status_code=404, detail="Article not found")
-    
-    # Cek apakah article sudah final
+
     if article.status not in ["approved"]:
         raise HTTPException(
             status_code=400,
             detail="Article must be approved before publishing"
         )
     
-    # Update semua status menjadi published
     article.status = "published"
     article.status_admin_kota = "published"
     article.status_admin_opd = "published"
@@ -380,7 +377,7 @@ async def publish_article(
     for admin in admin_kotas:
         new_notif = Notifications(
             id=uuid4(),
-            user_id=admin.id,   # notif masuk ke admin kota
+            user_id=admin.id,   
             article_id=article.article_id,
             notification_type="article",
             message=notif_message,
@@ -390,7 +387,7 @@ async def publish_article(
         db.add(new_notif)
 
     db.commit()
-    
+
     return {
         "message": f"Article has been published",
         "data": {

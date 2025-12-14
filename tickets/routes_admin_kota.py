@@ -314,6 +314,25 @@ def get_admin_kota_notifications(
         .all()
     )
 
+    # Ambil notifikasi tiket war room (critical)
+    ticket_notifications = (
+        db.query(
+            Notifications.id.label("notification_id"),
+            Notifications.message,
+            Notifications.is_read,
+            Notifications.created_at,
+            Tickets.ticket_code.label("ticket_code"),
+            Tickets.ticket_id.label("ticket_id")
+        )
+        .join(Tickets, Tickets.ticket_id == Notifications.ticket_id)
+        .filter(
+            Notifications.user_id == admin_uuid,
+            Notifications.notification_type == "ticket"
+        )
+        .order_by(Notifications.created_at.desc())
+        .all()
+    )
+
     # Format response
     article_data = [
         {
@@ -328,15 +347,36 @@ def get_admin_kota_notifications(
         for n in article_notifications
     ]
 
-    total = len(article_data)
-    unread = sum(1 for n in article_data if not n["is_read"])
+    ticket_data = [
+        {
+            "notification_id": str(n.notification_id),
+            "ticket_id": str(n.ticket_id),
+            "ticket_code": n.ticket_code,
+            "message": n.message,
+            "is_read": n.is_read,
+            "created_at": n.created_at.replace(tzinfo=timezone.utc) if n.created_at.tzinfo is None else n.created_at,
+            "notification_type": "ticket"
+        }
+        for n in ticket_notifications
+    ]
+
+    # Gabungkan semua notif
+    all_notifications = sorted(
+        article_data + ticket_data,
+        key=lambda x: x["created_at"],
+        reverse=True
+    )
+
+    total = len(all_notifications)
+    unread = sum(1 for n in all_notifications if not n["is_read"])
 
     return {
         "status": "success",
         "total_notifications": total,
         "unread_notifications": unread,
-        "data": article_data
+        "data": all_notifications
     }
+
 
 @router.get("/admin-kota/tickets/critical")
 def get_critical_tickets(
@@ -502,29 +542,76 @@ def create_war_room(payload: WarRoomCreate,
     if current_user.get("role_name") != "diskominfo":
         raise HTTPException(status_code=403, detail="Hanya admin kota yang dapat membuat war room.")
 
+    # Buat entri WarRoom
     war_room = WarRoom(
-        ticket_id = payload.ticket_id,
-        title = payload.title,
-        link_meet = payload.link_meet,
-        start_time = payload.start_time,
-        end_time = payload.end_time,
-        created_by = current_user["id"]
+        ticket_id=payload.ticket_id,
+        title=payload.title,
+        link_meet=payload.link_meet,
+        start_time=payload.start_time,
+        end_time=payload.end_time,
+        created_by=current_user["id"]
     )
     db.add(war_room)
     db.commit()
     db.refresh(war_room)
 
+    # Buat WarRoomOPD
     for opd_id in payload.opd_ids:
         db.add(WarRoomOPD(war_room_id=war_room.id, opd_id=opd_id))
 
-    for seksi_id in payload.seksi_ids:
-        db.add(WarRoomSeksi(war_room_id=war_room.id, seksi_id=seksi_id))
+    # Ambil semua user role seksi sesuai opd_id yang dipilih
+    seksi_users = (
+        db.query(Users)
+        .join(Roles, Roles.role_id == Users.role_id)
+        .filter(Roles.role_name == "seksi", Users.opd_id.in_(payload.opd_ids))
+        .all()
+    )
+
+    # Buat WarRoomSeksi otomatis
+    for user in seksi_users:
+        db.add(WarRoomSeksi(war_room_id=war_room.id, seksi_id=user.id))
+
+    db.commit()
+
+    # ==== Buat notifikasi ke semua user seksi dan admin OPD ====
+    # Notif untuk seksi
+    for user in seksi_users:
+        db.add(Notifications(
+            user_id=user.id,
+            war_room_id=war_room.id,
+            message=f"Anda diundang ke war room: {war_room.title}",
+            is_read=False,
+            created_at=datetime.utcnow(),
+            notification_type="war_room"
+        ))
+
+    # Notif untuk OPD (misal ambil semua user di opd_ids)
+    opd_users = (
+        db.query(Users)
+        .filter(Users.opd_id.in_(payload.opd_ids))
+        .all()
+    )
+
+    for user in opd_users:
+        db.add(Notifications(
+            user_id=user.id,
+            war_room_id=war_room.id,
+            message=f"War room baru dibuat untuk OPD Anda: {war_room.title}",
+            is_read=False,
+            created_at=datetime.utcnow(),
+            notification_type="war_room"
+        ))
+
+    ticket = db.query(Tickets).filter(Tickets.ticket_id == payload.ticket_id).first()
+    if ticket:
+        ticket.ticket_stage = "war-room-activate"
+        ticket.status = "war room activate"
 
     db.commit()
 
     return {
         "status": "success",
-        "message": "War room berhasil dibuat",
+        "message": "War room berhasil dibuat, notifikasi telah dikirim",
         "war_room_id": war_room.id
     }
 

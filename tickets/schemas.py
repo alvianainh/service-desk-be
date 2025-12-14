@@ -170,7 +170,6 @@ class WarRoomCreate(BaseModel):
     start_time: datetime
     end_time: datetime
     opd_ids: List[int]
-    seksi_ids: List[UUID]
 
 class ServiceRequestCreate(BaseModel):
     unit_kerja_id: int

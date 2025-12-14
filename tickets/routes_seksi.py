@@ -1154,11 +1154,39 @@ async def set_priority_masyarakat(
         )
 
     ticket.priority = payload.priority.capitalize()  
-    ticket.ticket_stage = "pending"
-    ticket.status = "verified by seksi"
-    ticket.status_ticket_seksi="pending"
-    ticket.status_ticket_pengguna="proses verifikasi"
-    ticket.verified_seksi_id=current_user.get("id")
+    priority = ticket.priority
+
+    if priority.lower() == "critical":
+        ticket.ticket_stage = "war-room-required"
+        ticket.status = "critical - waiting war room"
+        ticket.status_ticket_seksi = "done"
+        ticket.status_ticket_pengguna = "menunggu war room"
+
+        # Notif ke semua user di war room
+        admin_kota_users = (
+            db.query(Users)
+            .join(Roles)
+            .filter(Roles.role_name == "diskominfo")
+            .all()
+        )
+        for admin in admin_kota_users:
+            db.add(models.Notifications(
+                user_id=admin.id,
+                ticket_id=ticket.ticket_id,
+                notification_type="ticket",  # <-- pastikan ini ada
+                message=f"Tiket {ticket.ticket_code} prioritas CRITICAL, perlu perhatian admin kota!",
+                status="Critical - Admin Kota",
+                is_read=False,
+                created_at=datetime.utcnow()
+            ))
+
+    else:
+        # Tiket non-critical → flow normal
+        ticket.ticket_stage = "pending"
+        ticket.status = "verified by seksi"
+        ticket.status_ticket_seksi="pending"
+        ticket.status_ticket_pengguna="proses verifikasi"
+        ticket.verified_seksi_id=current_user.get("id")
 
 
     db.commit()
@@ -1182,22 +1210,23 @@ async def set_priority_masyarakat(
 
 
     # ==== notif ke bidang OPD tiket ====
-    bidang_users = (
-        db.query(Users)
-        .join(Roles)
-        .filter(Roles.role_name == "bidang", Users.opd_id == ticket.opd_id_tickets)
-        .all()
-    )
+    if priority.lower() != "critical":
+        bidang_users = (
+            db.query(Users)
+            .join(Roles)
+            .filter(Roles.role_name == "bidang", Users.opd_id == ticket.opd_id_tickets)
+            .all()
+        )
 
-    for bidang in bidang_users:
-        db.add(models.Notifications(
-            user_id=bidang.id,
-            ticket_id=ticket.ticket_id,
-            message=f"Tiket {ticket.ticket_code} siap diverifikasi bidang (prioritas: {ticket.priority})",
-            status="Tiket Siap Diverifikasi",
-            is_read=False,
-            created_at=datetime.utcnow()
-        ))
+        for bidang in bidang_users:
+            db.add(models.Notifications(
+                user_id=bidang.id,
+                ticket_id=ticket.ticket_id,
+                message=f"Tiket {ticket.ticket_code} siap diverifikasi bidang (prioritas: {ticket.priority})",
+                status="Tiket Siap Diverifikasi",
+                is_read=False,
+                created_at=datetime.utcnow()
+            ))
 
     db.commit()
 

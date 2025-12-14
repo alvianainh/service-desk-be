@@ -444,6 +444,8 @@ class Notifications(Base):
         ForeignKey("announcements.id", ondelete="CASCADE"),
         nullable=True
     )
+    war_room_id = Column(UUID(as_uuid=True), ForeignKey("war_rooms.id", ondelete="SET NULL"), nullable=True)  # Tambahan field
+
 
     message = Column(Text, nullable=False)
     is_read = Column(Boolean, default=False)
