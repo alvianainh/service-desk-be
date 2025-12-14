@@ -124,7 +124,40 @@ async def root():
     return {"message": "Server is running!"}
 
 
-@router.post("/redirect/sso")
+# @router.post("/redirect/sso")
+# async def sso_login(
+#     credentials: HTTPAuthorizationCredentials = Depends(security),
+#     db: Session = Depends(get_db)
+# ):
+#     token_arise = credentials.credentials
+
+#     # 1. validasi token ke Arise
+#     async with aiohttp.ClientSession() as session:
+#         async with session.get(
+#             "https://arise-app.my.id/api/me",
+#             headers={"Authorization": f"Bearer {token_arise}"}
+#         ) as res:
+#             if res.status != 200:
+#                 raise HTTPException(401, "Invalid SSO token")
+
+#             data = await res.json()
+#             aset_user = data.get("user")
+#             if not aset_user:
+#                 raise HTTPException(502, "User data kosong dari Arise")
+
+#     # 2. sync user ke Service Desk
+#     user = await sync_user_from_aset(db, aset_user, token_arise)
+
+#     # 3. buat token Service Desk (FIXED)
+#     access_token = create_access_token(user, db)
+
+#     return {
+#         "access_token": access_token,
+#         "token_type": "bearer"
+#     }
+
+
+@router.get("/redirect/sso")
 async def sso_login(
     credentials: HTTPAuthorizationCredentials = Depends(security),
     db: Session = Depends(get_db)
@@ -148,11 +181,12 @@ async def sso_login(
     # 2. sync user ke Service Desk
     user = await sync_user_from_aset(db, aset_user, token_arise)
 
-    # 3. buat token Service Desk (FIXED)
-    access_token = create_access_token(user, db)
+    # 3. buat token Service Desk
+    service_desk_token = create_access_token(user, db)
 
     return {
-        "access_token": access_token,
+        "service_desk_token": service_desk_token,
+        "asset_token": token_arise,
         "token_type": "bearer"
     }
 

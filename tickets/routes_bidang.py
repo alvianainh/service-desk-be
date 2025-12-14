@@ -280,7 +280,6 @@ def get_bidang_notification_by_id(
 
     opd_id = current_user.get("dinas_id")
 
-    # Ambil notif berdasarkan ID, user, dan tiket yang verified by seksi & sesuai opd
     notif = (
         db.query(Notifications)
         .join(Tickets, Notifications.ticket_id == Tickets.ticket_id)
