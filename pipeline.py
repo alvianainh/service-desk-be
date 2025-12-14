@@ -1,5 +1,5 @@
 import logging
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Header
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Header, Query
 from sqlalchemy.orm import Session
 from auth.database import get_db
 # from auth.auth import routes as auth_routes
@@ -36,7 +36,8 @@ import random
 from email.mime.text import MIMEText
 import smtplib
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-
+from fastapi.responses import RedirectResponse
+from urllib.parse import urlencode
 
 router = APIRouter()
 # router.include_router(auth_routes.router)
@@ -123,15 +124,13 @@ async def root():
     logger.info("GET / - Root endpoint accessed")
     return {"message": "Server is running!"}
 
-
-# @router.post("/redirect/sso")
+# @router.get("/redirect/sso")
 # async def sso_login(
 #     credentials: HTTPAuthorizationCredentials = Depends(security),
 #     db: Session = Depends(get_db)
 # ):
 #     token_arise = credentials.credentials
 
-#     # 1. validasi token ke Arise
 #     async with aiohttp.ClientSession() as session:
 #         async with session.get(
 #             "https://arise-app.my.id/api/me",
@@ -145,26 +144,24 @@ async def root():
 #             if not aset_user:
 #                 raise HTTPException(502, "User data kosong dari Arise")
 
-#     # 2. sync user ke Service Desk
 #     user = await sync_user_from_aset(db, aset_user, token_arise)
 
-#     # 3. buat token Service Desk (FIXED)
-#     access_token = create_access_token(user, db)
+#     service_desk_token = create_access_token(user, db)
 
 #     return {
-#         "access_token": access_token,
+#         "service_desk_token": service_desk_token,
+#         "asset_token": token_arise,
 #         "token_type": "bearer"
 #     }
 
 
-@router.get("/redirect/sso")
+@router.get("/redirect/sso", include_in_schema=False)
 async def sso_login(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    token: str = Query(..., description="Token dari Arise"),
     db: Session = Depends(get_db)
 ):
-    token_arise = credentials.credentials
+    token_arise = token 
 
-    # 1. validasi token ke Arise
     async with aiohttp.ClientSession() as session:
         async with session.get(
             "https://arise-app.my.id/api/me",
@@ -173,22 +170,23 @@ async def sso_login(
             if res.status != 200:
                 raise HTTPException(401, "Invalid SSO token")
 
-            data = await res.json()
-            aset_user = data.get("user")
+            payload = await res.json()
+            aset_user = payload.get("user")
             if not aset_user:
                 raise HTTPException(502, "User data kosong dari Arise")
 
-    # 2. sync user ke Service Desk
     user = await sync_user_from_aset(db, aset_user, token_arise)
 
-    # 3. buat token Service Desk
     service_desk_token = create_access_token(user, db)
 
-    return {
+    query = urlencode({
         "service_desk_token": service_desk_token,
-        "asset_token": token_arise,
-        "token_type": "bearer"
-    }
+        "asset_token": token_arise
+    })
+
+    redirect_url = f"http://localhost:5173/sso-callback?{query}"
+
+    return RedirectResponse(url=redirect_url, status_code=302)
 
 
 @router.get("/redirect/me")
@@ -266,97 +264,6 @@ async def login_sso(payload: LoginPayload):
                 "user": data.get("user")
             }
 
-
-# @router.post("/register")
-# async def register(data: RegisterModel, db: Session = Depends(database.get_db)):
-#     logger.info(f"POST /register - Register request for email: {data.email}")
-    
-#     existing_user = db.query(Users).filter(Users.email == data.email).first()
-#     if existing_user:
-#         return {"error": "Email already registered"}
-    
-#     hashed_pw = hash_password(data.password)
-#     new_user = Users(
-#         email=data.email,
-#         password=hashed_pw,
-#         first_name=data.first_name,
-#         last_name=data.last_name,
-#         phone_number=data.phone_number,
-#         opd_id=data.opd_id,
-#         nik=data.nik,
-#         birth_date=data.birth_date,
-#         address=data.address,
-#         no_employee=data.no_employee,
-#         jabatan=data.jabatan,
-#         division=data.division,
-#         start_date=data.start_date
-#     )
-#     db.add(new_user)
-#     db.commit()
-#     db.refresh(new_user)
-
-#     from auth.models import Roles, UserRoles
-
-#     role = db.query(Roles).filter(Roles.role_name == "masyarakat").first()
-#     if not role:
-#         role = Roles(role_name="masyarakat", description="Default role for new users")
-#         db.add(role)
-#         db.commit()
-#         db.refresh(role)
-
-#     new_user_role = UserRoles(user_id=new_user.id, role_id=role.role_id)
-#     db.add(new_user_role)
-#     db.commit()
-
-#     access_token = create_access_token(new_user, db)
-
-#     logger.info(f"POST /register - User registered successfully: {new_user.email}")
-#     return {
-#         "message": "User registered successfully",
-#         "user_id": str(new_user.id),
-#         "token_type": "bearer",
-#         "user": {
-#             "email": new_user.email,
-#             "first_name": new_user.first_name,
-#             "last_name": new_user.last_name,
-#             "roles": ["masyarakat"],
-#             "opd_id": str(new_user.opd_id) if new_user.opd_id else None,
-#             "no_employee": new_user.no_employee,
-#             "division": new_user.division
-#         }
-#     }
-
-# @router.post("/login")
-# async def login(data: LoginModel, db: Session = Depends(database.get_db)):
-#     user = await get_user_by_email(data.email, db)
-#     if not user or not verify_password(data.password, user.password):
-#         raise HTTPException(status_code=401, detail="Invalid email or password")
-
-#     from auth.models import Roles, UserRoles
-#     roles = (
-#         db.query(Roles.role_name)
-#         .join(UserRoles, Roles.role_id == UserRoles.role_id)
-#         .filter(UserRoles.user_id == user.id)
-#         .all()
-#     )
-#     role_names = [r.role_name for r in roles] if roles else ["user"]
-
-#     access_token = create_access_token(user, db)
-#     refresh_token = create_refresh_token(str(user.id), db)
-
-#     return {
-#         "access_token": access_token,
-#         "refresh_token": refresh_token,
-#         "token_type": "bearer",
-#         "user": {
-#             "email": user.email,
-#             "first_name": user.first_name,
-#             "last_name": user.last_name,
-#             "roles": role_names
-#         }
-#     }
-
-
 @router.post("/refresh")
 async def refresh_token(refresh_token: str, db: Session = Depends(get_db)):
     token_record = (
@@ -384,42 +291,6 @@ async def refresh_token(refresh_token: str, db: Session = Depends(get_db)):
         "token_type": "bearer"
     }
 
-# @router.get("/me")
-# async def get_profile(current_user: dict = Depends(get_current_user)):
-#     """
-#     Endpoint untuk melihat data user hasil get_current_user.
-#     """
-#     return {
-#         "message": "Success",
-#         "data": current_user
-#     }
-
-
-# @router.get("/me")
-# async def get_sso_me(current_user: dict = Depends(get_current_user)):
-
-#     token = current_user["token"]  
-
-#     async with aiohttp.ClientSession() as session:
-#         async with session.get(
-#             ARISE_ME_URL,
-#             headers={
-#                 "accept": "application/json",
-#                 "Authorization": f"Bearer {token}",
-#             }
-#         ) as response:
-
-#             text = await response.text()
-
-#             if response.status != 200:
-#                 raise HTTPException(
-#                     status_code=response.status,
-#                     detail=f"Error from Arise: {text}",
-#                 )
-
-#             data = await response.json()
-#             return data
-
 
 @router.get("/me")
 async def get_sso_me(current_user: dict = Depends(get_current_user_universal)):
@@ -444,7 +315,6 @@ async def get_sso_me(current_user: dict = Depends(get_current_user_universal)):
 
             user_data = await res_me.json()
 
-    # user_data["user"]["unit_kerja_id"] bisa "1" (string)
     unit_kerja_id_raw = user_data.get("user", {}).get("unit_kerja_id")
 
     if not unit_kerja_id_raw:
@@ -455,7 +325,7 @@ async def get_sso_me(current_user: dict = Depends(get_current_user_universal)):
         }
 
     try:
-        unit_kerja_id = int(unit_kerja_id_raw)   # <-- FIX DI SINI
+        unit_kerja_id = int(unit_kerja_id_raw) 
     except:
         return {
             "user": user_data,
@@ -463,7 +333,6 @@ async def get_sso_me(current_user: dict = Depends(get_current_user_universal)):
             "message": "unit_kerja_id tidak valid"
         }
 
-    # --- STEP 2: GET LIST UNIT KERJA ---
     async with aiohttp.ClientSession() as session:
         async with session.get(
             "https://arise-app.my.id/api/unit-kerja",
@@ -481,7 +350,6 @@ async def get_sso_me(current_user: dict = Depends(get_current_user_universal)):
 
     unit_list = unit_kerja_data.get("data", [])
 
-    # --- STEP 3: FIND MAPPING ---
     target_unit = next((u for u in unit_list if int(u["id"]) == unit_kerja_id), None)
 
     if not target_unit:

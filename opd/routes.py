@@ -44,7 +44,7 @@ async def sync_dinas_from_asset(db: Session):
                         nama=d["nama"],
                         created_at=d["created_at"],
                         updated_at=d["updated_at"],
-                        file_path=None  # default, internal only
+                        file_path=None 
                     )
                     db.add(new_dinas)
 
@@ -151,36 +151,4 @@ async def update_icon_dinas(
             "file_path": dinas.file_path
         }
     }
-
-
-
-# @router.get("/opd-asset", response_model=list[schemas.OPDResponse])
-# async def get_all_opd(
-#     db: Session = Depends(database.get_db)
-# ):
-#     async with aiohttp.ClientSession() as session:
-#         async with session.get("https://arise-app.my.id/api/dinas") as res:
-#             if res.status != 200:
-#                 err = await res.text()
-#                 raise HTTPException(500, f"Gagal ambil OPD dari ASET: {err}")
-
-#             aset_data = await res.json()
-
-#     local_opds = db.query(models.Opd).all()
-#     local_map = {o.id_aset: o for o in local_opds}
-
-#     final_result = []
-#     for opd in aset_data["data"]:
-#         aset_id = opd["id"]
-#         local = local_map.get(aset_id)
-
-#         final_result.append({
-#             "opd_id": str(local.opd_id) if local else None,
-#             "id_aset": opd["id"],
-#             "opd_name": opd["nama"],
-#             "file_path": local.file_path if local else None,
-#             "description": local.description if local else None,
-#         })
-
-#     return final_result
 

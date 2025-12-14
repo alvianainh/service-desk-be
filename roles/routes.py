@@ -94,11 +94,6 @@ def get_all_roles(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
-    # if current_user.get("role_name") not in ["diskominfo"]:
-    #     raise HTTPException(
-    #         status_code=403,
-    #         detail="Unauthorized: hanya role diskominfo yang boleh melihat daftar role"
-    #     )
 
     roles = db.query(Roles).order_by(Roles.role_id.asc()).all()
     return roles
@@ -110,11 +105,6 @@ def get_role_by_id(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
-    # if current_user.get("role_name") not in ["diskominfo"]:
-    #     raise HTTPException(
-    #         status_code=403,
-    #         detail="Unauthorized: hanya role diskominfo yang boleh melihat role"
-    #     )
 
     role = db.query(Roles).filter(Roles.role_id == role_id).first()
 

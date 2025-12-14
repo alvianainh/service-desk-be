@@ -23,70 +23,8 @@ from io import BytesIO
 from sqlalchemy import extract
 
 
-
-# from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
-# from reportlab.lib.styles import getSampleStyleSheet
-# from reportlab.lib.pagesizes import A4
-# from reportlab.lib.units import cm
-# from reportlab.lib.enums import TA_CENTER
-# from reportlab.lib import colors
-# from io import BytesIO
-
-
-# def generate_ticket_pdf(ticket):
-#     buffer = BytesIO()
-
-#     doc = SimpleDocTemplate(
-#         buffer,
-#         pagesize=A4,
-#         leftMargin=2 * cm,
-#         rightMargin=2 * cm,
-#         topMargin=2 * cm,
-#         bottomMargin=2 * cm,
-#     )
-
-#     styles = getSampleStyleSheet()
-#     title_style = styles['Heading1']
-#     title_style.alignment = TA_CENTER
-
-#     normal = styles['Normal']
-#     h2 = styles['Heading2']
-
-#     elements = []
-
-#     elements.append(Paragraph("Laporan Tiket Pelaporan", title_style))
-#     elements.append(Spacer(1, 0.5 * cm))
-
-#     elements.append(Paragraph(f"<b>Kode Tiket:</b> {ticket['ticket_code']}", normal))
-#     elements.append(Paragraph(f"<b>Judul:</b> {ticket['title']}", normal))
-#     elements.append(Paragraph(f"<b>Deskripsi:</b> {ticket['description']}", normal))
-#     elements.append(Paragraph(f"<b>Status:</b> {ticket['status']}", normal))
-#     elements.append(Paragraph(f"<b>Prioritas:</b> {ticket['priority']}", normal))
-#     elements.append(Spacer(1, 0.3 * cm))
-
-#     elements.append(Paragraph("<hr/>", normal))
-#     elements.append(Spacer(1, 0.3 * cm))
-
-#     elements.append(Paragraph("Informasi Pelapor", h2))
-#     elements.append(Paragraph(f"<b>Nama:</b> {ticket['creator']['full_name']}", normal))
-#     elements.append(Paragraph(f"<b>Email:</b> {ticket['creator']['email']}", normal))
-#     elements.append(Spacer(1, 0.3 * cm))
-
-#     elements.append(Paragraph("Detail Asset", h2))
-#     elements.append(Paragraph(f"<b>Nama Asset:</b> {ticket['asset']['nama_asset']}", normal))
-#     elements.append(Paragraph(f"<b>Kode BMD:</b> {ticket['asset']['kode_bmd']}", normal))
-#     elements.append(Paragraph(f"<b>Jenis Asset:</b> {ticket['asset']['jenis_asset']}", normal))
-
-#     doc.build(elements)
-
-#     pdf = buffer.getvalue()
-#     buffer.close()
-#     return pdf
-
-
 router = APIRouter()
 logger = logging.getLogger(__name__)
-
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
@@ -95,54 +33,6 @@ BUCKET_NAME = "docs"
 PRIORITY_OPTIONS = ["Low", "Medium", "High", "Critical"]
 
 ASSET_BASE = "https://arise-app.my.id/api"
-
-
-
-# @router.get("/tickets/seksi/{ticket_id}/download")
-# async def download_ticket_pdf(
-#     ticket_id: str,
-#     db: Session = Depends(get_db),
-#     current_user: dict = Depends(get_current_user)
-# ):
-
-#     ticket_data = get_ticket_detail_seksi(ticket_id, db, current_user)
-
-#     pdf_bytes = generate_ticket_pdf(ticket_data)
-
-#     return Response(
-#         content=pdf_bytes,
-#         media_type="application/pdf",
-#         headers={
-#             "Content-Disposition": f"attachment; filename=tiket-{ticket_id}.pdf"
-#         }
-#     )
-
-
-# async def fetch_asset_from_api(token: str, asset_id: int):
-#     async with aiohttp.ClientSession() as session:
-#         async with session.get(
-#             f"{ASSET_BASE}/asset-barang",
-#             headers={"Authorization": f"Bearer {token}"}
-#         ) as res:
-
-#             if res.status != 200:
-#                 text_err = await res.text()
-#                 raise HTTPException(
-#                     status_code=400,
-#                     detail=f"Gagal ambil data asset dari ASET: {text_err}"
-#                 )
-
-#             data = await res.json()
-
-#     assets = data.get("data", {}).get("data", [])
-
-#     aset = next((item for item in assets if str(item.get("id")) == str(asset_id)), None)
-
-#     if not aset:
-#         raise HTTPException(status_code=404, detail="Asset tidak ditemukan di API ASET")
-
-#     return aset
-
 
 
 async def fetch_asset_from_api(token: str, asset_id: int):
@@ -295,7 +185,6 @@ def get_admin_kota_notifications(
     except ValueError:
         raise HTTPException(400, "User ID tidak valid")
 
-    # Ambil notifikasi artikel
     article_notifications = (
         db.query(
             Notifications.id.label("notification_id"),
@@ -314,7 +203,6 @@ def get_admin_kota_notifications(
         .all()
     )
 
-    # Ambil notifikasi tiket war room (critical)
     ticket_notifications = (
         db.query(
             Notifications.id.label("notification_id"),
@@ -425,7 +313,6 @@ def get_admin_kota_notification_by_id(
     except ValueError:
         raise HTTPException(400, "ID notifikasi atau user tidak valid")
 
-    # Ambil notifikasi
     notif = db.query(Notifications).filter(
         Notifications.id == notif_uuid,
         Notifications.user_id == admin_uuid
@@ -434,7 +321,6 @@ def get_admin_kota_notification_by_id(
     if not notif:
         raise HTTPException(404, "Notifikasi tidak ditemukan")
 
-    # Siapkan data umum
     data = {
         "notification_id": str(notif.id),
         "message": notif.message,
@@ -443,7 +329,6 @@ def get_admin_kota_notification_by_id(
         "notification_type": notif.notification_type
     }
 
-    # Detail tergantung tipe notifikasi
     if notif.notification_type == "article" and notif.article_id:
         article = db.query(Articles).filter(Articles.article_id == notif.article_id).first()
         if article:
@@ -476,7 +361,6 @@ def get_admin_kota_notification_by_id(
             "end_time": war_room.end_time
         })
 
-        # Ambil tiket dari war room
         if war_room.ticket_id:
             ticket = db.query(Tickets).filter(Tickets.ticket_id == war_room.ticket_id).first()
             if ticket:
@@ -529,7 +413,6 @@ def get_admin_kota_notification_by_id(
                     "assigned_teknisi_id": str(ticket.assigned_teknisi_id) if ticket.assigned_teknisi_id else None
                 }
 
-                # Masukkan ticket_data ke response
                 data["ticket"] = ticket_data
 
     return {
@@ -538,7 +421,6 @@ def get_admin_kota_notification_by_id(
     }
 
 
-# 1️⃣ Mark as read per notification
 @router.patch("/notifications-diskominfo/{notification_id}/read")
 def mark_notification_as_read(
     notification_id: str = Path(..., description="ID notifikasi"),
@@ -565,7 +447,6 @@ def mark_notification_as_read(
     return {"status": "success", "message": "Notifikasi telah ditandai sebagai dibaca"}
 
 
-# 2️⃣ Mark as read all notifications for the user
 @router.patch("/notifications-diskominfo/read-all")
 def mark_all_notifications_as_read(
     db: Session = Depends(get_db),
@@ -774,7 +655,6 @@ def create_war_room(payload: WarRoomCreate,
     if current_user.get("role_name") != "diskominfo":
         raise HTTPException(status_code=403, detail="Hanya admin kota yang dapat membuat war room.")
 
-    # Buat entri WarRoom
     war_room = WarRoom(
         ticket_id=payload.ticket_id,
         title=payload.title,
@@ -787,11 +667,9 @@ def create_war_room(payload: WarRoomCreate,
     db.commit()
     db.refresh(war_room)
 
-    # Buat WarRoomOPD
     for opd_id in payload.opd_ids:
         db.add(WarRoomOPD(war_room_id=war_room.id, opd_id=opd_id))
 
-    # Ambil semua user role seksi sesuai opd_id yang dipilih
     target_users = (
         db.query(Users)
         .join(Roles, Roles.role_id == Users.role_id)
@@ -803,14 +681,12 @@ def create_war_room(payload: WarRoomCreate,
     )
 
 
-    # Buat WarRoomSeksi otomatis
     for user in target_users:
         if user.role.role_name == "seksi":
             db.add(WarRoomSeksi(war_room_id=war_room.id, seksi_id=user.id))
 
     db.commit()
 
-    # ==== Buat notifikasi untuk semua target user ====
     for user in target_users:
         message = f"Anda diundang ke war room: {war_room.title}" if user.role.role_name == "seksi" else f"War room baru dibuat untuk OPD Anda: {war_room.title}"
         db.add(Notifications(
@@ -823,7 +699,7 @@ def create_war_room(payload: WarRoomCreate,
         ))
 
     db.add(Notifications(
-        user_id=current_user["id"],  # admin kota yang buat form
+        user_id=current_user["id"], 
         war_room_id=war_room.id,
         message=f"War room '{war_room.title}' berhasil dibuat dan aktif.",
         is_read=False,
@@ -831,7 +707,6 @@ def create_war_room(payload: WarRoomCreate,
         notification_type="war_room"
     ))
 
-    # Update status tiket
     ticket = db.query(Tickets).filter(Tickets.ticket_id == payload.ticket_id).first()
     if ticket:
         ticket.ticket_stage = "war-room-activate"
@@ -958,13 +833,6 @@ def get_completed_tickets_for_diskominfo_pegawai(
     current_user: dict = Depends(get_current_user_universal)
 ):
 
-    # allowed_roles = ["diskominfo", "superadmin", "admin_teknis"]  # daftar role yang diizinkan
-
-    # if current_user.get("role_name") not in allowed_roles:
-    #     raise HTTPException(
-    #         status_code=403,
-    #         detail=f"Akses ditolak: hanya role {', '.join(allowed_roles)} yang diperbolehkan."
-    #     )
 
     if current_user.get("role_name") != "diskominfo":
         raise HTTPException(
@@ -977,7 +845,7 @@ def get_completed_tickets_for_diskominfo_pegawai(
         .filter(
             models.Tickets.status == "selesai",
             models.Tickets.request_type == "pelaporan_online",
-            models.Tickets.ticket_source == "Pegawai"  # filter tambahan
+            models.Tickets.ticket_source == "Pegawai" 
         )
         .order_by(models.Tickets.created_at.desc())
         .all()
@@ -1181,7 +1049,7 @@ def get_completed_tickets_by_asset(
             models.Tickets.status == "selesai",
             models.Tickets.request_type == "pelaporan_online",
             models.Tickets.ticket_source == "Pegawai",
-            models.Tickets.asset_id == asset_id  # filter by asset_id
+            models.Tickets.asset_id == asset_id 
         )
         .order_by(models.Tickets.created_at.desc())
         .all()
@@ -1267,23 +1135,19 @@ def get_ratings_pelaporan_online_admin_kota(
     current_user: dict = Depends(get_current_user_universal)
 ):
 
-    # Hanya admin kota (Diskominfo)
     if current_user.get("role_name") != "diskominfo":
         raise HTTPException(
             status_code=403,
             detail="Akses ditolak: hanya admin kota (Diskominfo) yang dapat melihat data rating."
         )
 
-    # Base query: semua tiket pelaporan_online
     query = db.query(models.Tickets).filter(
         models.Tickets.request_type == "pelaporan_online"
     )
 
-    # Optional filter sumber laporan
     if source in ["Masyarakat", "Pegawai"]:
         query = query.filter(models.Tickets.ticket_source == source)
 
-    # Optional filter OPD
     if opd_id:
         query = query.filter(models.Tickets.opd_id_tickets == opd_id)
 
@@ -1296,7 +1160,6 @@ def get_ratings_pelaporan_online_admin_kota(
             models.TicketRatings.ticket_id == t.ticket_id
         ).first()
 
-        # skip kalau belum ada rating
         if not rating:
             continue
 
@@ -1311,19 +1174,17 @@ def get_ratings_pelaporan_online_admin_kota(
             "lokasi_kejadian": t.lokasi_kejadian,
             "created_at": t.created_at,
             "ticket_source": t.ticket_source,
-            "opd_id_tickets": t.opd_id_tickets,  # <-- ditambahkan
+            "opd_id_tickets": t.opd_id_tickets,
 
             "pengerjaan_awal": t.pengerjaan_awal,
             "pengerjaan_akhir": t.pengerjaan_akhir,
             "pengerjaan_awal_teknisi": t.pengerjaan_awal_teknisi,
             "pengerjaan_akhir_teknisi": t.pengerjaan_akhir_teknisi,
 
-            # Rating
             "rating": rating.rating,
             "comment": rating.comment,
             "rated_at": rating.created_at,
 
-            # User
             "user": {
                 "user_id": str(t.creates_id) if t.creates_id else None,
                 "full_name": t.creates_user.full_name if t.creates_user else None,
@@ -1331,7 +1192,6 @@ def get_ratings_pelaporan_online_admin_kota(
                 "profile": t.creates_user.profile_url if t.creates_user else None,
             },
 
-            # Asset
             "asset": {
                 "asset_id": t.asset_id,
                 "nama_asset": t.nama_asset,
@@ -1345,7 +1205,6 @@ def get_ratings_pelaporan_online_admin_kota(
                 "opd_id_asset": t.opd_id_asset,
             },
 
-            # Attachments
             "files": [
                 {
                     "attachment_id": str(a.attachment_id),
@@ -1423,19 +1282,16 @@ def get_statistik_kategori_pelaporan_online_admin_kota(
     current_user: dict = Depends(get_current_user_universal)
 ):
 
-    # Hanya admin kota (Diskominfo)
     if current_user.get("role_name") != "diskominfo":
         raise HTTPException(
             status_code=403,
             detail="Akses ditolak: hanya admin kota (Diskominfo)."
         )
 
-    # Base query: semua tiket pelaporan online
     query = db.query(models.Tickets).filter(
         models.Tickets.request_type == "pelaporan_online"
     )
 
-    # Filter OPD jika ada
     if opd_id:
         query = query.filter(models.Tickets.opd_id_tickets == opd_id)
 
@@ -1449,14 +1305,12 @@ def get_statistik_kategori_pelaporan_online_admin_kota(
 
     for t in tickets:
 
-        # Hitung masyarakat vs pegawai
         if t.ticket_source == "Masyarakat":
             total_masyarakat += 1
 
         elif t.ticket_source == "Pegawai":
             total_pegawai += 1
 
-            # Pegawai → hitung kategori asset
             if t.subkategori_id_asset:
                 kategori_name = t.subkategori_nama_asset
 
@@ -1465,7 +1319,7 @@ def get_statistik_kategori_pelaporan_online_admin_kota(
                         "subkategori": kategori_name,
                         "count": 0,
                         "tickets": [],
-                        "opd_ids": []  # <-- menampung OPD tiket
+                        "opd_ids": [] 
                     }
 
                 kategori_stats[kategori_name]["count"] += 1
@@ -1488,25 +1342,21 @@ def get_statistik_priority_pelaporan_online_admin_kota(
     current_user: dict = Depends(get_current_user_universal)
 ):
 
-    # Hanya admin kota (Diskominfo)
     if current_user.get("role_name") != "diskominfo":
         raise HTTPException(
             status_code=403,
             detail="Akses ditolak: hanya admin kota (Diskominfo)."
         )
 
-    # Base query: semua tiket pelaporan online
     query = db.query(models.Tickets).filter(
         models.Tickets.request_type == "pelaporan_online"
     )
 
-    # Filter OPD jika ada
     if opd_id:
         query = query.filter(models.Tickets.opd_id_tickets == opd_id)
 
     tickets = query.all()
 
-    # Priority groups (fixed)
     priorities = ["Low", "Medium", "High", "Critical"]
 
     priority_stats = {
@@ -1514,12 +1364,11 @@ def get_statistik_priority_pelaporan_online_admin_kota(
             "priority": p,
             "count": 0,
             "tickets": [],
-            "opd_ids": []  # <-- simpan OPD tiket
+            "opd_ids": []  
         }
         for p in priorities
     }
 
-    # Hitung statistik
     for t in tickets:
         p = t.priority if t.priority else None
 
@@ -1543,14 +1392,13 @@ def get_ratings_pelaporan_online_filter_admin_kota(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user_universal)
 ):
-    # Hanya admin kota (Diskominfo)
+
     if current_user.get("role_name") != "diskominfo":
         raise HTTPException(
             status_code=403,
             detail="Akses ditolak: hanya admin kota (Diskominfo)."
         )
 
-    # Base query (admin kota bisa lihat semua tiket)
     query = (
         db.query(models.Tickets)
         .filter(
@@ -1559,7 +1407,6 @@ def get_ratings_pelaporan_online_filter_admin_kota(
         )
     )
 
-    # Filter optional
     if source in ["Masyarakat", "Pegawai"]:
         query = query.filter(models.Tickets.ticket_source == source)
     if year:
@@ -1602,7 +1449,7 @@ def get_ratings_pelaporan_online_filter_admin_kota(
             "comment": rating.comment,
             "rated_at": rating.created_at,
 
-            "opd_id_tickets": t.opd_id_tickets,  # <-- tambahkan OPD tiket
+            "opd_id_tickets": t.opd_id_tickets,  
 
             "user": {
                 "user_id": str(t.creates_id) if t.creates_id else None,
@@ -1653,20 +1500,17 @@ def export_pelaporan_online_excel_kota(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user_universal)
 ):
-    # Hanya admin kota (diskominfo)
     if current_user.get("role_name") != "diskominfo":
         raise HTTPException(
             status_code=403,
             detail="Akses ditolak: hanya admin kota (diskominfo) yang dapat mengexport data."
         )
 
-    # Query utama
     query = db.query(models.Tickets).filter(
         models.Tickets.request_type == "pelaporan_online",
         models.Tickets.status == "selesai"
     )
 
-    # Filter optional
     if source in ["Masyarakat", "Pegawai"]:
         query = query.filter(models.Tickets.ticket_source == source)
     if year:
@@ -1678,7 +1522,6 @@ def export_pelaporan_online_excel_kota(
 
     tickets = query.order_by(models.Tickets.created_at.desc()).all()
 
-    # Mulai buat Excel
     wb = Workbook()
     ws = wb.active
     ws.title = "Pelaporan Online"
@@ -1692,7 +1535,7 @@ def export_pelaporan_online_excel_kota(
         "user_id", "full_name", "email", "profile",
         "asset_id", "nama_asset", "kode_bmd", "nomor_seri", "kategori",
         "subkategori_id", "subkategori_nama", "jenis_asset", "lokasi_asset",
-        "opd_id_tickets",  # <-- tambahkan kolom OPD tiket
+        "opd_id_tickets",  
         "files"
     ]
     ws.append(headers)
@@ -1734,13 +1577,12 @@ def export_pelaporan_online_excel_kota(
             t.subkategori_nama_asset,
             t.jenis_asset,
             t.lokasi_asset,
-            t.opd_id_tickets,  # <-- tampilkan OPD tiket
+            t.opd_id_tickets, 
             file_list
         ]
 
         ws.append(row)
 
-    # Simpan file
     filename = f"pelaporan_online_export_kota_{uuid.uuid4()}.xlsx"
     filepath = os.path.join("exports", filename)
 
@@ -1760,14 +1602,12 @@ def get_statistik_pengajuan_pelayanan_admin_kota(
     current_user: dict = Depends(get_current_user_universal)
 ):
 
-    # Hanya admin kota (Diskominfo)
     if current_user.get("role_name") != "diskominfo":
         raise HTTPException(
             status_code=403,
             detail="Akses ditolak: hanya admin kota (Diskominfo) yang dapat melihat data pengajuan pelayanan."
         )
 
-    # Base query semua OPD
     query = (
         db.query(models.Tickets)
         .join(models.TicketServiceRequests, models.TicketServiceRequests.ticket_id == models.Tickets.ticket_id)
@@ -1777,11 +1617,9 @@ def get_statistik_pengajuan_pelayanan_admin_kota(
         )
     )
 
-    # Filter optional berdasarkan opd_id
     if opd_id:
         query = query.filter(models.Tickets.opd_id_tickets == opd_id)
 
-    # Sort by opd_id dan created_at desc
     tickets = query.order_by(models.Tickets.opd_id_tickets.asc(), models.Tickets.created_at.desc()).all()
 
     results = []
@@ -1800,16 +1638,13 @@ def get_statistik_pengajuan_pelayanan_admin_kota(
             "ticket_source": t.ticket_source,
             "request_type": t.request_type,
 
-            # Detail pengerjaan
             "pengerjaan_awal": t.pengerjaan_awal,
             "pengerjaan_akhir": t.pengerjaan_akhir,
             "pengerjaan_awal_teknisi": t.pengerjaan_awal_teknisi,
             "pengerjaan_akhir_teknisi": t.pengerjaan_akhir_teknisi,
 
-            # OPD tiket
             "opd_id_tickets": t.opd_id_tickets,
 
-            # Detail user
             "user": {
                 "user_id": str(t.creates_id) if t.creates_id else None,
                 "full_name": t.creates_user.full_name if t.creates_user else None,
@@ -1817,7 +1652,6 @@ def get_statistik_pengajuan_pelayanan_admin_kota(
                 "profile": t.creates_user.profile_url if t.creates_user else None,
             },
 
-            # Detail pengajuan pelayanan (form)
             "pengajuan_pelayanan": {
                 "unit_kerja_id": sr.unit_kerja_id if sr else None,
                 "unit_kerja_nama": sr.unit_kerja_nama if sr else None,
@@ -1831,7 +1665,6 @@ def get_statistik_pengajuan_pelayanan_admin_kota(
                 "created_at": sr.created_at if sr else None
             },
 
-            # Attachments
             "files": [
                 {
                     "attachment_id": str(a.attachment_id),
@@ -1859,18 +1692,15 @@ def get_rekap_pengajuan_pelayanan_bulanan_admin_kota(
     current_user: dict = Depends(get_current_user_universal)
 ):
 
-    # Validasi role admin kota
     if current_user.get("role_name") != "diskominfo":
         raise HTTPException(
             status_code=403,
             detail="Akses ditolak: hanya admin kota (Diskominfo)."
         )
 
-    # Default tahun sekarang
     if not year:
         year = datetime.now().year
 
-    # Query semua tiket pengajuan pelayanan seluruh OPD
     query = (
         db.query(
             models.Tickets.opd_id_tickets.label("opd_id"),
@@ -1886,29 +1716,24 @@ def get_rekap_pengajuan_pelayanan_bulanan_admin_kota(
         )
     )
 
-    # Filter OPD jika diberikan
     if opd_id:
         query = query.filter(models.Tickets.opd_id_tickets == opd_id)
 
-    # Filter bulan jika diberikan
     if month:
         query = query.filter(extract("month", models.Tickets.created_at) == month)
 
-    # Group by OPD + bulan
     raw_result = (
         query.group_by(models.Tickets.opd_id_tickets, extract("month", models.Tickets.created_at))
              .order_by(models.Tickets.opd_id_tickets.asc(), extract("month", models.Tickets.created_at).asc())
              .all()
     )
 
-    # Map hasil query: {opd_id: {bulan: total}}
     rekap_map: dict[int, dict[int, int]] = {}
     for r in raw_result:
         if r.opd_id not in rekap_map:
             rekap_map[r.opd_id] = {}
         rekap_map[r.opd_id][int(r.bulan)] = r.total
 
-    # Build response per OPD
     rekap_list = []
     for opd in sorted(rekap_map.keys()):
         bulan_list = []
@@ -1940,14 +1765,12 @@ def statistik_pengajuan_per_subkategori_admin_kota(
     current_user: dict = Depends(get_current_user_universal)
 ):
 
-    # Validasi role admin kota
     if current_user.get("role_name") != "diskominfo":
         raise HTTPException(
             status_code=403,
             detail="Akses ditolak: hanya admin kota (Diskominfo)."
         )
 
-    # Query semua tiket selesai pengajuan_pelayanan seluruh OPD
     query = (
         db.query(models.Tickets)
         .join(models.TicketServiceRequests, models.TicketServiceRequests.ticket_id == models.Tickets.ticket_id)
@@ -1957,14 +1780,11 @@ def statistik_pengajuan_per_subkategori_admin_kota(
         )
     )
 
-    # Filter OPD jika diberikan
     if opd_id:
         query = query.filter(models.Tickets.opd_id_tickets == opd_id)
 
-    # Sort by opd_id naik
     tickets = query.order_by(models.Tickets.opd_id_tickets.asc()).all()
 
-    # Map statistik per OPD
     statistik_per_opd: dict[int, dict[tuple[int, str], int]] = {}
 
     for t in tickets:
@@ -1983,7 +1803,6 @@ def statistik_pengajuan_per_subkategori_admin_kota(
 
         statistik_per_opd[opd][key] += 1
 
-    # Build response
     result_list = []
     for opd in sorted(statistik_per_opd.keys()):
         subkategori_list = [
@@ -2013,14 +1832,12 @@ def statistik_pengajuan_per_priority_admin_kota(
     current_user: dict = Depends(get_current_user_universal)
 ):
 
-    # Validasi role admin kota
     if current_user.get("role_name") != "diskominfo":
         raise HTTPException(
             status_code=403,
             detail="Akses ditolak: hanya admin kota (Diskominfo)."
         )
 
-    # Query semua tiket selesai pengajuan_pelayanan seluruh OPD
     query = (
         db.query(models.Tickets)
         .join(models.TicketServiceRequests, models.TicketServiceRequests.ticket_id == models.Tickets.ticket_id)
@@ -2030,14 +1847,11 @@ def statistik_pengajuan_per_priority_admin_kota(
         )
     )
 
-    # Filter OPD jika diberikan
     if opd_id:
         query = query.filter(models.Tickets.opd_id_tickets == opd_id)
 
-    # Sort by opd_id naik
     tickets = query.order_by(models.Tickets.opd_id_tickets.asc()).all()
 
-    # Statistik per OPD
     statistik_per_opd: dict[int, dict[str, int]] = {}
 
     for t in tickets:
@@ -2052,7 +1866,7 @@ def statistik_pengajuan_per_priority_admin_kota(
 
         statistik_per_opd[opd][key] += 1
 
-    # Build response
+
     result_list = []
     for opd in sorted(statistik_per_opd.keys()):
         priority_list = [
@@ -2083,14 +1897,12 @@ def get_statistik_pengajuan_pelayanan_filter_admin_kota(
     current_user: dict = Depends(get_current_user_universal)
 ):
 
-    # Hanya admin kota
     if current_user.get("role_name") != "diskominfo":
         raise HTTPException(
             status_code=403,
             detail="Akses ditolak: hanya admin kota (Diskominfo)."
         )
 
-    # Base Query (semua OPD)
     query = (
         db.query(models.Tickets)
         .join(models.TicketServiceRequests, models.TicketServiceRequests.ticket_id == models.Tickets.ticket_id)
@@ -2100,30 +1912,25 @@ def get_statistik_pengajuan_pelayanan_filter_admin_kota(
         )
     )
 
-    # Optional filter OPD
     if opd_id:
         query = query.filter(models.Tickets.opd_id_tickets == opd_id)
 
-    # Filter berdasarkan tahun
     if year:
         query = query.filter(
             extract('year', models.Tickets.created_at) == year
         )
 
-    # Filter berdasarkan bulan
     if month:
         query = query.filter(
             extract('month', models.Tickets.created_at) == month
         )
 
-    # Sort berdasarkan opd_id
     tickets = query.order_by(models.Tickets.opd_id_tickets.asc(), models.Tickets.created_at.desc()).all()
 
     results = []
 
     for t in tickets:
 
-        # Ambil pengajuan pelayanan (form data)
         sr = t.service_request[0] if t.service_request else None
 
         attachments = t.attachments if hasattr(t, "attachments") else []
@@ -2131,7 +1938,7 @@ def get_statistik_pengajuan_pelayanan_filter_admin_kota(
         results.append({
             "ticket_id": str(t.ticket_id),
             "ticket_code": t.ticket_code,
-            "opd_id_tickets": t.opd_id_tickets,  # <-- tambahan
+            "opd_id_tickets": t.opd_id_tickets,
             "title": t.title,
             "status": t.status,
             "priority": t.priority,
@@ -2139,13 +1946,11 @@ def get_statistik_pengajuan_pelayanan_filter_admin_kota(
             "ticket_source": t.ticket_source,
             "request_type": t.request_type,
 
-            # Pengerjaan
             "pengerjaan_awal": t.pengerjaan_awal,
             "pengerjaan_akhir": t.pengerjaan_akhir,
             "pengerjaan_awal_teknisi": t.pengerjaan_awal_teknisi,
             "pengerjaan_akhir_teknisi": t.pengerjaan_akhir_teknisi,
 
-            # User
             "user": {
                 "user_id": str(t.creates_id) if t.creates_id else None,
                 "full_name": t.creates_user.full_name if t.creates_user else None,
@@ -2153,7 +1958,6 @@ def get_statistik_pengajuan_pelayanan_filter_admin_kota(
                 "profile": t.creates_user.profile_url if t.creates_user else None,
             },
 
-            # Detail Form Pengajuan Pelayanan
             "pengajuan_pelayanan": {
                 "unit_kerja_id": sr.unit_kerja_id if sr else None,
                 "unit_kerja_nama": sr.unit_kerja_nama if sr else None,
@@ -2167,7 +1971,6 @@ def get_statistik_pengajuan_pelayanan_filter_admin_kota(
                 "created_at": sr.created_at if sr else None,
             },
 
-            # FILES
             "files": [
                 {
                     "attachment_id": str(a.attachment_id),
@@ -2204,14 +2007,12 @@ def export_pengajuan_pelayanan_excel_kota(
             detail=f"Akses ditolak: hanya role {', '.join(allowed_roles)} yang diperbolehkan."
         )
 
-    # Hanya admin kota
     if current_user.get("role_name") != "diskominfo":
         raise HTTPException(
             status_code=403,
             detail="Akses ditolak: hanya admin kota (diskominfo)."
         )
 
-    # Base query (semua OPD)
     query = (
         db.query(models.Tickets)
         .join(models.TicketServiceRequests, models.TicketServiceRequests.ticket_id == models.Tickets.ticket_id)
@@ -2221,19 +2022,15 @@ def export_pengajuan_pelayanan_excel_kota(
         )
     )
 
-    # Optional filter OPD
     if opd_id:
         query = query.filter(models.Tickets.opd_id_tickets == opd_id)
 
-    # Filter berdasarkan tahun
     if year:
         query = query.filter(extract("year", models.Tickets.created_at) == year)
 
-    # Filter berdasarkan bulan
     if month:
         query = query.filter(extract("month", models.Tickets.created_at) == month)
 
-    # Sort berdasarkan opd_id dan created_at
     tickets = query.order_by(models.Tickets.opd_id_tickets.asc(), models.Tickets.created_at.desc()).all()
 
 
@@ -2252,7 +2049,6 @@ def export_pengajuan_pelayanan_excel_kota(
         "kategori_aset", "subkategori_id",
         "subkategori_nama", "id_asset",
         "extra_metadata", "form_created_at",
-        # Files
         "file_paths"
     ]
 
@@ -2317,7 +2113,6 @@ def get_all_teknisi_tickets_admin_kota(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user_universal)
 ):
-    # Validasi role admin kota
     if current_user.get("role_name") != "diskominfo":
         raise HTTPException(
             status_code=403,
@@ -2326,7 +2121,6 @@ def get_all_teknisi_tickets_admin_kota(
 
     allowed_status = ["assigned to teknisi", "diproses"]
 
-    # Base query
     query = db.query(models.Tickets).filter(
         models.Tickets.assigned_teknisi_id.isnot(None),
         models.Tickets.status.in_(allowed_status)
@@ -2344,7 +2138,6 @@ def get_all_teknisi_tickets_admin_kota(
         teknisi_user = db.query(Users).filter(Users.id == t.assigned_teknisi_id).first()
         attachments = t.attachments if hasattr(t, "attachments") else []
 
-        # ===== Hitung status_sla =====
         status_sla = "sesuai sla"
         if t.pengerjaan_awal and t.pengerjaan_akhir:
             now = datetime.utcnow()
@@ -2373,7 +2166,7 @@ def get_all_teknisi_tickets_admin_kota(
             "pengerjaan_akhir": t.pengerjaan_akhir,
             "pengerjaan_awal_teknisi": t.pengerjaan_awal_teknisi,
             "pengerjaan_akhir_teknisi": t.pengerjaan_akhir_teknisi,
-            "status_sla": status_sla,  # tambahkan field SLA
+            "status_sla": status_sla, 
 
             "assigned_teknisi": {
                 "id": teknisi_user.id if teknisi_user else None,
@@ -2581,7 +2374,6 @@ def get_ratings_for_admin_kota_all_opd(
             detail="Akses ditolak: hanya admin kota yang dapat melihat data rating."
         )
 
-    # Left join Dinas -> Tickets -> TicketRatings
     opd_ratings = (
         db.query(
             Dinas.id.label("opd_id"),
@@ -2624,7 +2416,6 @@ def get_ratings_for_admin_kota_by_opd(
             detail="Akses ditolak: hanya admin kota yang dapat melihat data rating."
         )
 
-    # Ambil semua tiket OPD yang punya rating
     tickets = (
         db.query(models.Tickets)
         .filter(models.Tickets.opd_id_tickets == opd_id)
@@ -2705,7 +2496,7 @@ def get_rating_by_ticket_id(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user_universal)
 ):
-    # Bisa tambahkan role check jika perlu
+
     ticket = db.query(models.Tickets).filter(models.Tickets.ticket_id == ticket_id).first()
     if not ticket:
         raise HTTPException(404, "Tiket tidak ditemukan")

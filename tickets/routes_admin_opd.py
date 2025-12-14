@@ -23,71 +23,8 @@ from io import BytesIO
 from sqlalchemy import extract
 
 
-
-
-# from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
-# from reportlab.lib.styles import getSampleStyleSheet
-# from reportlab.lib.pagesizes import A4
-# from reportlab.lib.units import cm
-# from reportlab.lib.enums import TA_CENTER
-# from reportlab.lib import colors
-# from io import BytesIO
-
-
-# def generate_ticket_pdf(ticket):
-#     buffer = BytesIO()
-
-#     doc = SimpleDocTemplate(
-#         buffer,
-#         pagesize=A4,
-#         leftMargin=2 * cm,
-#         rightMargin=2 * cm,
-#         topMargin=2 * cm,
-#         bottomMargin=2 * cm,
-#     )
-
-#     styles = getSampleStyleSheet()
-#     title_style = styles['Heading1']
-#     title_style.alignment = TA_CENTER
-
-#     normal = styles['Normal']
-#     h2 = styles['Heading2']
-
-#     elements = []
-
-#     elements.append(Paragraph("Laporan Tiket Pelaporan", title_style))
-#     elements.append(Spacer(1, 0.5 * cm))
-
-#     elements.append(Paragraph(f"<b>Kode Tiket:</b> {ticket['ticket_code']}", normal))
-#     elements.append(Paragraph(f"<b>Judul:</b> {ticket['title']}", normal))
-#     elements.append(Paragraph(f"<b>Deskripsi:</b> {ticket['description']}", normal))
-#     elements.append(Paragraph(f"<b>Status:</b> {ticket['status']}", normal))
-#     elements.append(Paragraph(f"<b>Prioritas:</b> {ticket['priority']}", normal))
-#     elements.append(Spacer(1, 0.3 * cm))
-
-#     elements.append(Paragraph("<hr/>", normal))
-#     elements.append(Spacer(1, 0.3 * cm))
-
-#     elements.append(Paragraph("Informasi Pelapor", h2))
-#     elements.append(Paragraph(f"<b>Nama:</b> {ticket['creator']['full_name']}", normal))
-#     elements.append(Paragraph(f"<b>Email:</b> {ticket['creator']['email']}", normal))
-#     elements.append(Spacer(1, 0.3 * cm))
-
-#     elements.append(Paragraph("Detail Asset", h2))
-#     elements.append(Paragraph(f"<b>Nama Asset:</b> {ticket['asset']['nama_asset']}", normal))
-#     elements.append(Paragraph(f"<b>Kode BMD:</b> {ticket['asset']['kode_bmd']}", normal))
-#     elements.append(Paragraph(f"<b>Jenis Asset:</b> {ticket['asset']['jenis_asset']}", normal))
-
-#     doc.build(elements)
-
-#     pdf = buffer.getvalue()
-#     buffer.close()
-#     return pdf
-
-
 router = APIRouter()
 logger = logging.getLogger(__name__)
-
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
@@ -96,27 +33,6 @@ BUCKET_NAME = "docs"
 PRIORITY_OPTIONS = ["Low", "Medium", "High", "Critical"]
 
 ASSET_BASE = "https://arise-app.my.id/api"
-
-
-
-# @router.get("/tickets/seksi/{ticket_id}/download")
-# async def download_ticket_pdf(
-#     ticket_id: str,
-#     db: Session = Depends(get_db),
-#     current_user: dict = Depends(get_current_user)
-# ):
-
-#     ticket_data = get_ticket_detail_seksi(ticket_id, db, current_user)
-
-#     pdf_bytes = generate_ticket_pdf(ticket_data)
-
-#     return Response(
-#         content=pdf_bytes,
-#         media_type="application/pdf",
-#         headers={
-#             "Content-Disposition": f"attachment; filename=tiket-{ticket_id}.pdf"
-#         }
-#     )
 
 
 async def fetch_asset_from_api(token: str, asset_id: int):
@@ -244,7 +160,6 @@ def get_admin_dinas_notifications(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user_universal)
 ):
-    # ✅ Cek role admin dinas
     if current_user.get("role_name") != "admin dinas":
         raise HTTPException(403, "Akses ditolak: hanya admin dinas yang dapat melihat notifikasi")
 
@@ -256,7 +171,6 @@ def get_admin_dinas_notifications(
     opd_id = current_user.get("dinas_id")
     now = datetime.utcnow()
 
-    # 1️⃣ SLA Warning: semua tiket di OPD belum selesai & ada pengerjaan awal & akhir
     tickets = db.query(Tickets).filter(
         Tickets.opd_id_tickets == opd_id,
         Tickets.status != "selesai",
@@ -292,7 +206,6 @@ def get_admin_dinas_notifications(
                 ))
                 db.commit()
 
-    # 2️⃣ Notifikasi tiket (termasuk SLA warning)
     ticket_notifications = (
         db.query(
             Notifications.id.label("notification_id"),
@@ -333,7 +246,6 @@ def get_admin_dinas_notifications(
         for n in ticket_notifications
     ]
 
-    # 3️⃣ Notifikasi pengumuman
     announcement_notifications = (
         db.query(
             Notifications.id.label("notification_id"),
@@ -407,7 +319,6 @@ def get_admin_dinas_notifications(
         for n in article_notifications
     ]
 
-    # 4️⃣ Gabungkan & urut berdasarkan created_at
     war_room_notifications = (
         db.query(
             Notifications.id.label("notification_id"),
@@ -460,7 +371,6 @@ def get_admin_dinas_notifications(
             "ticket_metadata": ticket_data
         })
 
-    # Gabungkan semua notif
     all_notifications = ticket_data + announcement_data + article_data + war_room_data
     all_notifications.sort(key=lambda x: x["created_at"], reverse=True)
 
@@ -480,7 +390,6 @@ def get_admin_dinas_notification_by_id(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user_universal)
 ):
-    # ✅ Cek role
     if current_user.get("role_name") != "admin dinas":
         raise HTTPException(403, "Akses ditolak: hanya admin dinas yang dapat melihat notifikasi")
 
@@ -490,7 +399,6 @@ def get_admin_dinas_notification_by_id(
     except ValueError:
         raise HTTPException(400, "ID notifikasi atau user tidak valid")
 
-    # Ambil notifikasi
     notif = db.query(Notifications).filter(
         Notifications.id == notif_uuid,
         Notifications.user_id == admin_uuid
@@ -499,7 +407,6 @@ def get_admin_dinas_notification_by_id(
     if not notif:
         raise HTTPException(404, "Notifikasi tidak ditemukan")
 
-    # Detail tergantung tipe notifikasi
     data = {
         "notification_id": str(notif.id),
         "message": notif.message,
@@ -545,7 +452,6 @@ def get_admin_dinas_notification_by_id(
             "end_time": war_room.end_time
         })
 
-        # Ambil tiket dari war room
         if war_room.ticket_id:
             ticket = db.query(Tickets).filter(Tickets.ticket_id == war_room.ticket_id).first()
             if ticket:
@@ -598,7 +504,6 @@ def get_admin_dinas_notification_by_id(
                     "assigned_teknisi_id": str(ticket.assigned_teknisi_id) if ticket.assigned_teknisi_id else None
                 }
 
-                # 🔹 Masukkan ticket_data ke response
                 data["ticket"] = ticket_data
 
 
@@ -632,7 +537,6 @@ def mark_notification_as_read(
     return {"status": "success", "message": "Notifikasi telah ditandai sebagai dibaca"}
 
 
-# 2️⃣ Mark as read all notifications for the user
 @router.patch("/notifications-opd/read-all")
 def mark_all_notifications_as_read(
     db: Session = Depends(get_db),
@@ -896,7 +800,7 @@ def get_ratings_pelaporan_online(
         .filter(
             models.Tickets.opd_id_tickets == opd_id_user,
             models.Tickets.request_type == "pelaporan_online",
-            models.Tickets.status == "selesai"  # <-- hanya tiket selesai
+            models.Tickets.status == "selesai"  
         )
     )
 
@@ -1028,7 +932,6 @@ def get_statistik_kategori_pelaporan_online(
     current_user: dict = Depends(get_current_user_universal)
 ):
 
-    # Hanya admin opd
     if current_user.get("role_name") != "admin dinas":
         raise HTTPException(
             status_code=403,
@@ -1037,13 +940,12 @@ def get_statistik_kategori_pelaporan_online(
 
     opd_id_user = current_user.get("dinas_id")
 
-    # Ambil semua tiket pelaporan online (tanpa filter source dulu)
     tickets = (
         db.query(models.Tickets)
         .filter(
             models.Tickets.opd_id_tickets == opd_id_user,
             models.Tickets.request_type == "pelaporan_online",
-            models.Tickets.status == "selesai"  # <-- hanya tiket selesai
+            models.Tickets.status == "selesai" 
         )
         .all()
     )
@@ -1052,18 +954,15 @@ def get_statistik_kategori_pelaporan_online(
     total_masyarakat = 0
     total_pegawai = 0
 
-    # Statistik kategori (khusus pegawai)
     kategori_stats = {}
 
     for t in tickets:
 
-        # Hitung masyarakat vs pegawai
         if t.ticket_source == "Masyarakat":
             total_masyarakat += 1
         elif t.ticket_source == "Pegawai":
             total_pegawai += 1
 
-            # Pegawai → hitung kategori asset
             if t.subkategori_id_asset:
                 kategori_name = t.subkategori_nama_asset
 
@@ -1091,7 +990,6 @@ def get_statistik_priority_pelaporan_online(
     current_user: dict = Depends(get_current_user_universal)
 ):
 
-    # Hanya admin opd
     if current_user.get("role_name") != "admin dinas":
         raise HTTPException(
             status_code=403,
@@ -1100,18 +998,16 @@ def get_statistik_priority_pelaporan_online(
 
     opd_id_user = current_user.get("dinas_id")
 
-    # Ambil semua tiket pelaporan online
     tickets = (
         db.query(models.Tickets)
         .filter(
             models.Tickets.opd_id_tickets == opd_id_user,
             models.Tickets.request_type == "pelaporan_online",
-            models.Tickets.status == "selesai"  # <-- hanya tiket selesai
+            models.Tickets.status == "selesai"  
         )
         .all()
     )
 
-    # Priority groups
     priorities = ["Low", "Medium", "High", "Critical"]
 
     priority_stats = {
@@ -1144,7 +1040,7 @@ def get_ratings_pelaporan_online_filter(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user_universal)
 ):
-    # Hanya admin dinas
+
     if current_user.get("role_name") != "admin dinas":
         raise HTTPException(
             status_code=403,
@@ -1153,7 +1049,7 @@ def get_ratings_pelaporan_online_filter(
 
     opd_id_user = current_user.get("dinas_id")
 
-    # Base query
+
     query = (
         db.query(models.Tickets)
         .filter(
@@ -1163,17 +1059,14 @@ def get_ratings_pelaporan_online_filter(
         )
     )
 
-    # Filter source
     if source in ["Masyarakat", "Pegawai"]:
         query = query.filter(models.Tickets.ticket_source == source)
 
-    # Filter berdasarkan tahun
     if year:
         query = query.filter(
             extract('year', models.Tickets.created_at) == year
         )
 
-    # Filter berdasarkan bulan
     if month:
         query = query.filter(
             extract('month', models.Tickets.created_at) == month
@@ -1191,7 +1084,6 @@ def get_ratings_pelaporan_online_filter(
             .first()
         )
 
-        # Skip jika belum ada rating
         if not rating:
             continue
 
@@ -1262,7 +1154,7 @@ def export_pelaporan_online_excel(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user_universal)
 ):
-    # Akses admin dinas
+
     if current_user.get("role_name") != "admin dinas":
         raise HTTPException(
             status_code=403,
@@ -1271,7 +1163,6 @@ def export_pelaporan_online_excel(
 
     opd_id_user = current_user.get("dinas_id")
 
-    # Query utama
     query = (
         db.query(models.Tickets)
         .filter(
@@ -1292,37 +1183,29 @@ def export_pelaporan_online_excel(
 
     tickets = query.order_by(models.Tickets.created_at.desc()).all()
 
-    # Mulai buat Excel
     wb = Workbook()
     ws = wb.active
     ws.title = "Pelaporan Online"
 
-    # Header Excel (sesuai hasil return JSON)
     headers = [
         "ticket_id", "ticket_code", "title", "status", "priority",
         "lokasi_kejadian", "created_at", "ticket_source",
 
-        # pengerjaan
         "pengerjaan_awal", "pengerjaan_akhir",
         "pengerjaan_awal_teknisi", "pengerjaan_akhir_teknisi",
 
-        # rating
         "rating", "comment", "rated_at",
 
-        # user
         "user_id", "full_name", "email", "profile",
 
-        # asset
         "asset_id", "nama_asset", "kode_bmd", "nomor_seri", "kategori",
         "subkategori_id", "subkategori_nama", "jenis_asset", "lokasi_asset", "opd_id_asset",
 
-        # list file akan digabung (dipisah koma)
         "files"
     ]
 
     ws.append(headers)
 
-    # Isi data baris per baris
     for t in tickets:
         rating = (
             db.query(models.TicketRatings)
@@ -1354,13 +1237,11 @@ def export_pelaporan_online_excel(
             rating.comment,
             rating.created_at,
 
-            # user
             str(t.creates_id) if t.creates_id else None,
             t.creates_user.full_name if t.creates_user else None,
             t.creates_user.email if t.creates_user else None,
             t.creates_user.profile_url if t.creates_user else None,
 
-            # asset
             t.asset_id,
             t.nama_asset,
             t.kode_bmd_asset,
@@ -1377,7 +1258,6 @@ def export_pelaporan_online_excel(
 
         ws.append(row)
 
-    # Simpan file
     filename = f"pelaporan_online_export_{uuid.uuid4()}.xlsx"
     filepath = os.path.join("exports", filename)
 
@@ -1399,7 +1279,6 @@ def get_statistik_pengajuan_pelayanan(
     current_user: dict = Depends(get_current_user_universal)
 ):
 
-    # Hanya admin OPD
     if current_user.get("role_name") != "admin dinas":
         raise HTTPException(
             status_code=403,
@@ -1408,7 +1287,6 @@ def get_statistik_pengajuan_pelayanan(
 
     opd_id_user = current_user.get("dinas_id")
 
-    # Ambil semua tiket pengajuan pelayanan untuk OPD tersebut
     tickets = (
         db.query(models.Tickets)
         .join(models.TicketServiceRequests, models.TicketServiceRequests.ticket_id == models.Tickets.ticket_id)
@@ -1425,7 +1303,6 @@ def get_statistik_pengajuan_pelayanan(
 
     for t in tickets:
 
-        # Karena relationship masih one-to-many (list)
         sr = t.service_request[0] if t.service_request else None
 
         attachments = t.attachments if hasattr(t, "attachments") else []
@@ -1440,13 +1317,11 @@ def get_statistik_pengajuan_pelayanan(
             "ticket_source": t.ticket_source,
             "request_type": t.request_type,
 
-            # Detail pengerjaan
             "pengerjaan_awal": t.pengerjaan_awal,
             "pengerjaan_akhir": t.pengerjaan_akhir,
             "pengerjaan_awal_teknisi": t.pengerjaan_awal_teknisi,
             "pengerjaan_akhir_teknisi": t.pengerjaan_akhir_teknisi,
 
-            # Detail user
             "user": {
                 "user_id": str(t.creates_id) if t.creates_id else None,
                 "full_name": t.creates_user.full_name if t.creates_user else None,
@@ -1454,7 +1329,6 @@ def get_statistik_pengajuan_pelayanan(
                 "profile": t.creates_user.profile_url if t.creates_user else None,
             },
 
-            # Detail pengajuan pelayanan (form)
             "pengajuan_pelayanan": {
                 "unit_kerja_id": sr.unit_kerja_id if sr else None,
                 "unit_kerja_nama": sr.unit_kerja_nama if sr else None,
@@ -1491,7 +1365,6 @@ def get_rekap_pengajuan_pelayanan_bulanan(
     current_user: dict = Depends(get_current_user_universal)
 ):
 
-    # Validasi role admin OPD
     if current_user.get("role_name") != "admin dinas":
         raise HTTPException(
             status_code=403,
@@ -1500,11 +1373,9 @@ def get_rekap_pengajuan_pelayanan_bulanan(
 
     opd_id_user = current_user.get("dinas_id")
 
-    # Default tahun sekarang
     if not year:
         year = datetime.now().year
 
-    # Query group by bulan
     raw_result = (
         db.query(
             extract("month", models.Tickets.created_at).label("bulan"),
@@ -1522,15 +1393,13 @@ def get_rekap_pengajuan_pelayanan_bulanan(
         .all()
     )
 
-    # Convert hasil query ke dict {bulan: total}
     hasil_map = {int(r.bulan): r.total for r in raw_result}
 
-    # Build response bulan 1–12
     rekap = []
     for bulan in range(1, 13):
         rekap.append({
             "bulan": bulan,
-            "total_tiket": hasil_map.get(bulan, None)  # None = null di JSON
+            "total_tiket": hasil_map.get(bulan, None) 
         })
 
     return {
@@ -1554,7 +1423,6 @@ def statistik_pengajuan_per_subkategori(
 
     opd_id_user = current_user.get("dinas_id")
 
-    # Ambil semua tiket selesai pengajuan_pelayanan milik OPD
     tickets = (
         db.query(models.Tickets)
         .join(models.TicketServiceRequests, models.TicketServiceRequests.ticket_id == models.Tickets.ticket_id)
@@ -1651,7 +1519,6 @@ def get_statistik_pengajuan_pelayanan_filter(
     current_user: dict = Depends(get_current_user_universal)
 ):
 
-    # Hanya admin OPD
     if current_user.get("role_name") != "admin dinas":
         raise HTTPException(
             status_code=403,
@@ -1660,7 +1527,6 @@ def get_statistik_pengajuan_pelayanan_filter(
 
     opd_id_user = current_user.get("dinas_id")
 
-    # Base Query
     query = (
         db.query(models.Tickets)
         .join(models.TicketServiceRequests, models.TicketServiceRequests.ticket_id == models.Tickets.ticket_id)
@@ -1671,13 +1537,11 @@ def get_statistik_pengajuan_pelayanan_filter(
         )
     )
 
-    # Filter berdasarkan tahun
     if year:
         query = query.filter(
             extract('year', models.Tickets.created_at) == year
         )
 
-    # Filter berdasarkan bulan
     if month:
         query = query.filter(
             extract('month', models.Tickets.created_at) == month
@@ -1689,7 +1553,6 @@ def get_statistik_pengajuan_pelayanan_filter(
 
     for t in tickets:
 
-        # Ambil pengajuan pelayanan (form data)
         sr = t.service_request[0] if t.service_request else None
 
         attachments = t.attachments if hasattr(t, "attachments") else []
@@ -1704,13 +1567,11 @@ def get_statistik_pengajuan_pelayanan_filter(
             "ticket_source": t.ticket_source,
             "request_type": t.request_type,
 
-            # Pengerjaan
             "pengerjaan_awal": t.pengerjaan_awal,
             "pengerjaan_akhir": t.pengerjaan_akhir,
             "pengerjaan_awal_teknisi": t.pengerjaan_awal_teknisi,
             "pengerjaan_akhir_teknisi": t.pengerjaan_akhir_teknisi,
 
-            # User
             "user": {
                 "user_id": str(t.creates_id) if t.creates_id else None,
                 "full_name": t.creates_user.full_name if t.creates_user else None,
@@ -1718,7 +1579,6 @@ def get_statistik_pengajuan_pelayanan_filter(
                 "profile": t.creates_user.profile_url if t.creates_user else None,
             },
 
-            # Detail Form Pengajuan Pelayanan
             "pengajuan_pelayanan": {
                 "unit_kerja_id": sr.unit_kerja_id if sr else None,
                 "unit_kerja_nama": sr.unit_kerja_nama if sr else None,
@@ -1732,7 +1592,6 @@ def get_statistik_pengajuan_pelayanan_filter(
                 "created_at": sr.created_at if sr else None,
             },
 
-            # FILES
             "files": [
                 {
                     "attachment_id": str(a.attachment_id),
@@ -1784,9 +1643,6 @@ def export_pengajuan_pelayanan_excel(
 
     tickets = query.order_by(models.Tickets.created_at.desc()).all()
 
-    # ========================
-    # Excel
-    # ========================
     wb = Workbook()
     ws = wb.active
     ws.title = "Pengajuan Pelayanan"
@@ -1798,17 +1654,14 @@ def export_pengajuan_pelayanan_excel(
         "pengerjaan_awal", "pengerjaan_akhir",
         "pengerjaan_awal_teknisi", "pengerjaan_akhir_teknisi",
 
-        # USER
         "user_id", "user_full_name", "user_email", "user_profile",
 
-        # Form Pengajuan Pelayanan
         "unit_kerja_id", "unit_kerja_nama",
         "lokasi_id", "nama_aset_baru",
         "kategori_aset", "subkategori_id",
         "subkategori_nama", "id_asset",
         "extra_metadata", "form_created_at",
 
-        # Files
         "file_paths"
     ]
 

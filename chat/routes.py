@@ -22,7 +22,7 @@ SUPABASE_BUCKET = "docs_chat"
 
 @router.post("/chat/send")
 async def send_message(
-    opd_id: int = Form(...),  # sekarang int
+    opd_id: int = Form(...), 
     message: str = Form(""),
     file: UploadFile = File(None),
     db: Session = Depends(get_db),
@@ -30,7 +30,6 @@ async def send_message(
 ):
     user_id = UUID(current_user["id"])
 
-    # Cari chat berdasarkan opd_id (int) dan user_id (UUID)
     chat = db.query(Chat).filter(
         Chat.opd_id == opd_id,
         Chat.user_id == user_id
@@ -246,36 +245,6 @@ async def get_chat_history_for_seksi(
             for msg in chat.messages
         ]
     }
-
-
-# @router.get("/chat/opd/list")
-# async def list_active_chats_for_seksi(
-#     db: Session = Depends(get_db),
-#     current_user: dict = Depends(get_current_user)
-# ):
-#     if "seksi" not in current_user.get("roles", []):
-#         raise HTTPException(status_code=403, detail="Hanya seksi yang bisa melihat daftar chat")
-
-#     opd_id = current_user.get("opd_id")
-
-#     chats = (
-#         db.query(Chat)
-#         .options(joinedload(Chat.messages))
-#         .filter(Chat.opd_id == opd_id)
-#         .order_by(Chat.last_message_at.desc())
-#         .all()
-#     )
-
-#     return [
-#         {
-#             "chat_id": str(chat.chat_id),
-#             "user_id": str(chat.user_id),
-#             "last_message": chat.messages[-1].message if chat.messages else None,
-#             "last_sender": str(chat.messages[-1].sender_id) if chat.messages else None,
-#             "last_time": chat.messages[-1].sent_at if chat.messages else None
-#         }
-#         for chat in chats
-#     ]
 
 
 @router.post("/chat/{chat_id}/reply")

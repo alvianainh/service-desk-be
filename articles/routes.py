@@ -174,7 +174,7 @@ async def create_article(
     for admin in admin_kotas:
         new_notif = Notifications(
             id=uuid4(),
-            user_id=admin.id,  # user admin kota
+            user_id=admin.id, 
             article_id=new_article.article_id,
             notification_type="article",
             message=notif_message,
@@ -279,9 +279,7 @@ async def verify_article(
             detail=f"Invalid decision. Must be one of {valid_decisions}"
         )
 
-    # Aturan final status
     if article.status in ["approved", "rejected"]:
-        # Tidak bisa diubah lagi
         raise HTTPException(
             status_code=400,
             detail=f"Cannot change article status. Article has already been {article.status}"
@@ -342,7 +340,6 @@ async def publish_article(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user_universal)
 ):
-    # Cek role admin kota
     roles = current_user.get("role_name", [])
     if "diskominfo" not in roles:
         raise HTTPException(
