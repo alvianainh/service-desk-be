@@ -921,6 +921,19 @@ def get_completed_tickets_for_diskominfo(
                 "jenis_asset": ticket.jenis_asset,
                 "lokasi_asset": ticket.lokasi_asset,
                 "opd_id_asset": ticket.opd_id_asset,
+
+                "kategori_risiko_id": ticket.kategori_risiko_id_asset,
+                "kategori_risiko_nama": ticket.kategori_risiko_nama_asset,
+                "kategori_risiko_selera_positif": ticket.kategori_risiko_selera_positif,
+                "kategori_risiko_selera_negatif": ticket.kategori_risiko_selera_negatif,
+
+                "area_dampak_id": ticket.area_dampak_id_asset,
+                "area_dampak_nama": ticket.area_dampak_nama_asset,
+                "deskripsi_pengendalian_bidang": ticket.deskripsi_pengendalian_bidang,
+                "lokasi_penempatan": ticket.lokasi_penempatan,
+                "rfc_required": ticket.rfc_required,
+                "incident_repeat_flag": ticket.incident_repeat_flag,
+                "nilai_risiko_asset": ticket.nilai_risiko_asset,
             },
 
             "files": [
@@ -1025,6 +1038,19 @@ def get_completed_tickets_for_diskominfo_pegawai(
                 "jenis_asset": ticket.jenis_asset,
                 "lokasi_asset": ticket.lokasi_asset,
                 "opd_id_asset": ticket.opd_id_asset,
+                
+                "kategori_risiko_id": ticket.kategori_risiko_id_asset,
+                "kategori_risiko_nama": ticket.kategori_risiko_nama_asset,
+                "kategori_risiko_selera_positif": ticket.kategori_risiko_selera_positif,
+                "kategori_risiko_selera_negatif": ticket.kategori_risiko_selera_negatif,
+
+                "area_dampak_id": ticket.area_dampak_id_asset,
+                "area_dampak_nama": ticket.area_dampak_nama_asset,
+                "deskripsi_pengendalian_bidang": ticket.deskripsi_pengendalian_bidang,
+                "lokasi_penempatan": ticket.lokasi_penempatan,
+                "rfc_required": ticket.rfc_required,
+                "incident_repeat_flag": ticket.incident_repeat_flag,
+                "nilai_risiko_asset": ticket.nilai_risiko_asset,
             },
 
             "files": [
@@ -1111,6 +1137,18 @@ def get_ticket_by_id_for_diskominfo(
             "jenis_asset": ticket.jenis_asset,
             "lokasi_asset": ticket.lokasi_asset,
             "opd_id_asset": ticket.opd_id_asset,
+            "kategori_risiko_id": ticket.kategori_risiko_id_asset,
+            "kategori_risiko_nama": ticket.kategori_risiko_nama_asset,
+            "kategori_risiko_selera_positif": ticket.kategori_risiko_selera_positif,
+            "kategori_risiko_selera_negatif": ticket.kategori_risiko_selera_negatif,
+
+            "area_dampak_id": ticket.area_dampak_id_asset,
+            "area_dampak_nama": ticket.area_dampak_nama_asset,
+            "deskripsi_pengendalian_bidang": ticket.deskripsi_pengendalian_bidang,
+            "lokasi_penempatan": ticket.lokasi_penempatan,
+            "rfc_required": ticket.rfc_required,
+            "incident_repeat_flag": ticket.incident_repeat_flag,
+            "nilai_risiko_asset": ticket.nilai_risiko_asset,
         },
 
         "files": [
