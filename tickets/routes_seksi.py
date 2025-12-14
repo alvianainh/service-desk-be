@@ -1407,7 +1407,7 @@ async def set_priority_pengajuan_pelayanan(
     if payload.priority.lower() not in valid_priorities:
         raise HTTPException(
             400,
-            "Prioritas tidak valid, harus salah satu: low, medium, high, critical."
+            "Prioritas tidak valid, harus salah satu: low, medium, high."
         )
 
     ticket.priority = payload.priority.capitalize()

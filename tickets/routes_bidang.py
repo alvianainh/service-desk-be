@@ -219,29 +219,44 @@ async def get_area_dampak(current_user: dict = Depends(get_current_user_universa
 
 @router.get("/assets/lokasi")
 async def get_all_lokasi():
+    all_lokasi = []
+    page = 1
+
     async with aiohttp.ClientSession() as session:
-        async with session.get(
-            "https://arise-app.my.id/api/lokasi",
-            headers={"accept": "application/json"}
-        ) as resp:
-            if resp.status != 200:
-                raise HTTPException(
-                    resp.status,
-                    "Gagal mengambil data lokasi dari Arise"
+        while True:
+            async with session.get(
+                "https://arise-app.my.id/api/lokasi",
+                headers={"accept": "application/json"},
+                params={"page": page}
+            ) as resp:
+                if resp.status != 200:
+                    raise HTTPException(
+                        resp.status,
+                        "Gagal mengambil data lokasi dari Arise"
+                    )
+
+                res_json = await resp.json()
+
+                page_data = (
+                    res_json
+                    .get("data", {})
+                    .get("data", [])
                 )
 
-            res_json = await resp.json()
+                if not page_data:
+                    break
 
-            # ambil list lokasi (flatten pagination)
-            lokasi_list = (
-                res_json
-                .get("data", {})
-                .get("data", [])
-            )
+                all_lokasi.extend(page_data)
+
+                last_page = res_json.get("data", {}).get("last_page", page)
+                if page >= last_page:
+                    break
+
+                page += 1
 
     return {
-        "total": len(lokasi_list),
-        "data": lokasi_list
+        "total": len(all_lokasi),
+        "data": all_lokasi
     }
 
 
@@ -1006,6 +1021,27 @@ async def create_asset_and_save(
 
     headers = {"accept": "application/json", "Authorization": f"Bearer {token}"}
     async with aiohttp.ClientSession() as session:
+
+        async with session.get(
+            "https://arise-app.my.id/api/lokasi",
+            headers={"accept": "application/json"}
+        ) as resp:
+            if resp.status != 200:
+                raise HTTPException(502, "Gagal mengambil data lokasi dari Arise")
+
+            lokasi_data = (
+                (await resp.json())
+                .get("data", {})
+                .get("data", [])
+            )
+
+            selected_lokasi = next(
+                (l for l in lokasi_data if l["id"] == lokasi_id),
+                None
+            )
+
+            if not selected_lokasi:
+                raise HTTPException(400, "Lokasi tidak valid")
 
         # Unit Kerja
         async with session.get("https://arise-app.my.id/api/unit-kerja", headers=headers) as resp:
