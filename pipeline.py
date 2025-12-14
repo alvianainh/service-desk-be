@@ -15,7 +15,9 @@ from auth.auth import (
     get_current_user_masyarakat,
     create_refresh_token,
     verify_refresh_token,
-    create_access_token_simple
+    create_access_token_simple,
+    sync_user_from_aset,
+    get_current_user_universal
 )
 from auth import database
 from auth.models import Users, Roles, Opd, RefreshTokens, PasswordResetOTP
@@ -33,10 +35,13 @@ import aiohttp
 import random
 from email.mime.text import MIMEText
 import smtplib
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+
 
 router = APIRouter()
 # router.include_router(auth_routes.router)
 
+security = HTTPBearer()
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
@@ -119,138 +124,42 @@ async def root():
     return {"message": "Server is running!"}
 
 
-# @router.post("/password/reset/request")
-# def request_reset_password(email: EmailStr, db: Session = Depends(get_db)):
-#     user = db.query(Users).filter(Users.email == email).first()
-#     if not user:
-#         raise HTTPException(404, "Email tidak terdaftar")
+@router.post("/redirect/sso")
+async def sso_login(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db)
+):
+    token_arise = credentials.credentials
 
-#     otp = generate_otp()
-#     expired_at = datetime.utcnow() + timedelta(minutes=5)
+    # 1. validasi token ke Arise
+    async with aiohttp.ClientSession() as session:
+        async with session.get(
+            "https://arise-app.my.id/api/me",
+            headers={"Authorization": f"Bearer {token_arise}"}
+        ) as res:
+            if res.status != 200:
+                raise HTTPException(401, "Invalid SSO token")
 
+            data = await res.json()
+            aset_user = data.get("user")
+            if not aset_user:
+                raise HTTPException(502, "User data kosong dari Arise")
 
-#     db.query(PasswordResetOTP).filter(
-#         PasswordResetOTP.user_id == user.id,
-#         PasswordResetOTP.is_used == False
-#     ).update({"is_used": True})
+    # 2. sync user ke Service Desk
+    user = await sync_user_from_aset(db, aset_user, token_arise)
 
-#     otp_data = PasswordResetOTP(
-#         user_id=user.id,
-#         otp_code=otp,
-#         expired_at=expired_at
-#     )
+    # 3. buat token Service Desk (FIXED)
+    access_token = create_access_token(user, db)
 
-#     db.add(otp_data)
-#     db.commit()
-
-#     send_otp_email(email, otp)
-
-#     return {"message": "OTP berhasil dikirim ke email"}
-
-
-# @router.post("/password/reset/confirm")
-# def confirm_reset_password(
-#     payload: ResetPasswordPayload,
-#     db: Session = Depends(get_db)
-# ):
-#     user = db.query(Users).filter(Users.email == payload.email).first()
-#     if not user:
-#         raise HTTPException(404, "User tidak ditemukan")
-
-#     otp_data = (
-#         db.query(PasswordResetOTP)
-#         .filter(
-#             PasswordResetOTP.user_id == user.id,
-#             PasswordResetOTP.otp_code == payload.otp,
-#             PasswordResetOTP.is_used == False,
-#             PasswordResetOTP.expired_at >= datetime.utcnow()
-#         )
-#         .order_by(PasswordResetOTP.created_at.desc())
-#         .first()
-#     )
-
-#     if not otp_data:
-#         raise HTTPException(400, "OTP tidak valid atau sudah expired")
-
-#     # update password
-#     user.password = hash_password(payload.new_password)
-
-#     # invalidate OTP
-#     otp_data.is_used = True
-
-#     db.commit()
-
-#     return {"message": "Password berhasil direset"}
+    return {
+        "access_token": access_token,
+        "token_type": "bearer"
+    }
 
 
-
-
-
-# @router.post("/register")
-# async def register(data: RegisterModel, db: Session = Depends(database.get_db)):
-#     logger.info(f"POST /register - Register request for email: {data.email}")
-#     result = await register_user(data, db)
-#     logger.info(f"POST /register - Response: {result}")
-#     return result
-
-# @router.post("/register")
-# async def register(data: RegisterModel, db: Session = Depends(database.get_db)):
-#     logger.info(f"POST /register - Register request for email: {data.email}")
-    
-#     # Cek apakah user sudah ada
-#     existing_user = db.query(Users).filter(Users.email == data.email).first()
-#     if existing_user:
-#         return {"error": "Email already registered"}
-    
-#     # Buat user baru
-#     hashed_pw = hash_password(data.password)
-#     new_user = Users(
-#         email=data.email,
-#         password=hashed_pw,
-#         first_name=data.first_name,
-#         last_name=data.last_name,
-#         phone_number=data.phone_number,
-#         opd_id=data.opd_id,
-#         birth_date=data.birth_date,
-#         address=data.address,
-#         no_employee=data.no_employee,
-#         jabatan=data.jabatan,
-#         division=data.division,
-#         start_date=data.start_date
-#     )
-#     db.add(new_user)
-#     db.commit()
-#     db.refresh(new_user)
-    
-#     # Ambil roles user (default: ["user"] jika belum ada role)
-#     from auth.models import Roles, UserRoles
-#     roles = (
-#         db.query(Roles.role_name)
-#         .join(UserRoles, Roles.role_id == UserRoles.role_id)
-#         .filter(UserRoles.user_id == new_user.id)
-#         .all()
-#     )
-#     role_names = [r.role_name for r in roles] if roles else ["user"]
-    
-#     # Generate token
-#     access_token = create_access_token(new_user, db)
-
-    
-#     logger.info(f"POST /register - User registered successfully: {new_user.email}")
-#     return {
-#         "message": "User registered successfully",
-#         "user_id": str(new_user.id),
-#         "token_type": "bearer",
-#         "user": {
-#             "email": new_user.email,
-#             "first_name": new_user.first_name,
-#             "last_name": new_user.last_name,
-#             "roles": role_names,
-#             "opd_id": str(new_user.opd_id) if new_user.opd_id else None,
-#             "no_employee": new_user.no_employee,
-#             "division": new_user.division
-#         }
-#     }
+@router.get("/redirect/me")
+async def me(current_user=Depends(get_current_user_universal)):
+    return current_user
 
 
 @router.post("/register/masyarakat", response_model=TokenResponse)
@@ -479,11 +388,10 @@ async def refresh_token(refresh_token: str, db: Session = Depends(get_db)):
 
 
 @router.get("/me")
-async def get_sso_me(current_user: dict = Depends(get_current_user)):
+async def get_sso_me(current_user: dict = Depends(get_current_user_universal)):
 
-    token = current_user["token"]
+    token = current_user["access_token"]
 
-    # --- STEP 1: GET USER SSO /me ---
     async with aiohttp.ClientSession() as session:
         async with session.get(
             ARISE_ME_URL,
