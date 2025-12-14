@@ -2531,3 +2531,133 @@ def get_announcement_detail(
         }
     }
 
+
+@router.get("/admin-kota/ratings")
+def get_ratings_for_admin_kota_all_opd(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user_universal)
+):
+    if current_user.get("role_name") != "diskominfo":
+        raise HTTPException(
+            status_code=403,
+            detail="Akses ditolak: hanya admin kota yang dapat melihat data rating."
+        )
+
+    # Left join Dinas -> Tickets -> TicketRatings
+    opd_ratings = (
+        db.query(
+            Dinas.id.label("opd_id"),
+            Dinas.nama.label("opd_nama"),
+            func.avg(TicketRatings.rating).label("average_rating"),
+            func.count(TicketRatings.rating).label("total_rated_tickets")
+        )
+        .outerjoin(Tickets, Tickets.opd_id_tickets == Dinas.id)
+        .outerjoin(TicketRatings, TicketRatings.ticket_id == Tickets.ticket_id)
+        .group_by(Dinas.id, Dinas.nama)
+        .order_by(Dinas.nama)
+        .all()
+    )
+
+    results = [
+        {
+            "opd_id": str(r.opd_id),
+            "opd_nama": r.opd_nama,
+            "average_rating": float(round(r.average_rating, 2)) if r.average_rating is not None else None,
+            "total_rated_tickets": r.total_rated_tickets if r.total_rated_tickets else 0
+        }
+        for r in opd_ratings
+    ]
+
+    return {
+        "total_opd": len(results),
+        "data": results
+    }
+
+from fastapi import Query
+
+@router.get("/admin-kota/ratings/{opd_id}")
+def get_ratings_for_admin_kota_by_opd(
+    opd_id: str = Path(..., description="ID OPD"),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user_universal)
+):
+    if current_user.get("role_name") != "diskominfo":
+        raise HTTPException(
+            status_code=403,
+            detail="Akses ditolak: hanya admin kota yang dapat melihat data rating."
+        )
+
+    # Ambil semua tiket OPD yang punya rating
+    tickets = (
+        db.query(models.Tickets)
+        .filter(models.Tickets.opd_id_tickets == opd_id)
+        .order_by(models.Tickets.created_at.desc())
+        .all()
+    )
+
+    results = []
+
+    for t in tickets:
+        rating = (
+            db.query(models.TicketRatings)
+            .filter(models.TicketRatings.ticket_id == t.ticket_id)
+            .first()
+        )
+
+        if not rating:
+            continue
+
+        attachments = t.attachments if hasattr(t, "attachments") else []
+
+        results.append({
+            "ticket_id": str(t.ticket_id),
+            "ticket_code": t.ticket_code,
+            "title": t.title,
+            "status": t.status,
+            "priority": t.priority,
+            "lokasi_kejadian": t.lokasi_kejadian,
+            "created_at": t.created_at,
+            "pengerjaan_awal": t.pengerjaan_awal,
+            "pengerjaan_akhir": t.pengerjaan_akhir,
+            "pengerjaan_awal_teknisi": t.pengerjaan_awal_teknisi,
+            "pengerjaan_akhir_teknisi": t.pengerjaan_akhir_teknisi,
+
+            "rating": rating.rating,
+            "comment": rating.comment,
+            "rated_at": rating.created_at,
+
+            "user": {
+                "user_id": str(t.creates_id) if t.creates_id else None,
+                "full_name": t.creates_user.full_name if t.creates_user else None,
+                "email": t.creates_user.email if t.creates_user else None,
+                "profile": t.creates_user.profile_url if t.creates_user else None,
+            },
+
+            "asset": {
+                "asset_id": t.asset_id,
+                "nama_asset": t.nama_asset,
+                "kode_bmd": t.kode_bmd_asset,
+                "nomor_seri": t.nomor_seri_asset,
+                "kategori": t.kategori_asset,
+                "subkategori_id": t.subkategori_id_asset,
+                "subkategori_nama": t.subkategori_nama_asset,
+                "jenis_asset": t.jenis_asset,
+                "lokasi_asset": t.lokasi_asset,
+                "opd_id_asset": t.opd_id_asset,
+            },
+
+            "files": [
+                {
+                    "attachment_id": str(a.attachment_id),
+                    "file_path": a.file_path,
+                    "uploaded_at": a.uploaded_at
+                }
+                for a in attachments
+            ]
+        })
+
+    return {
+        "total": len(results),
+        "data": results
+    }
+

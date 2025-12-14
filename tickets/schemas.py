@@ -56,7 +56,7 @@
 #         orm_mode = True
 
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, EmailStr
 from typing import Optional, List, Literal
 from uuid import UUID
 from datetime import datetime
@@ -222,6 +222,11 @@ class AnnouncementCreateSchema(BaseModel):
     content: str
     external_link: Optional[str] = None
 
+class ExternalNotification(BaseModel):
+    user_email: EmailStr        # email target
+    message: str                # isi notifikasi
+    rfc_id: str                 # RFC ID terkait (WAJIB)
+    status: str | None = None   # status optional
 
 # class TicketTrackResponse(BaseModel):
 #     ticket_id: UUID 

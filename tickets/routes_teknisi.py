@@ -7,7 +7,7 @@ from auth.database import get_db
 from auth.auth import get_current_user, get_user_by_email, get_current_user_masyarakat, get_current_user_universal
 from tickets import models, schemas
 from tickets.models import Tickets, TicketAttachment, TicketCategories, TicketUpdates, TeknisiTags, TeknisiLevels, TicketRatings, Notifications, RFCIncidentRepeat, RFCChangeRequest, Announcements
-from tickets.schemas import TicketCreateSchema, TicketResponseSchema, TicketCategorySchema, TicketForSeksiSchema, TicketTrackResponse, UpdatePriority, ManualPriority, RejectReasonSeksi, RejectReasonBidang, AssignTeknisiSchema, RFCIncidentRepeatSchema, RFCChangeRequestSchema, RejectTicketPayload
+from tickets.schemas import TicketCreateSchema, TicketResponseSchema, TicketCategorySchema, TicketForSeksiSchema, TicketTrackResponse, UpdatePriority, ManualPriority, RejectReasonSeksi, RejectReasonBidang, AssignTeknisiSchema, RFCIncidentRepeatSchema, RFCChangeRequestSchema, RejectTicketPayload, ExternalNotification
 import uuid
 from auth.models import Opd, Dinas, Roles, Users
 import os
@@ -293,6 +293,39 @@ async def update_ticket_status(db, ticket, new_status, updated_by):
 
     asyncio.create_task(push_notification(payload))
 
+
+
+@router.post("/notifications/external")
+def create_external_notification(
+    payload: ExternalNotification,
+    db: Session = Depends(get_db)
+):
+    # Cari user by email
+    user = db.query(Users).filter(Users.email == payload.user_email).first()
+    if not user:
+        raise HTTPException(404, f"User dengan email {payload.user_email} tidak ditemukan")
+
+    # Cari tiket berdasarkan RFC ID
+    ticket = db.query(Tickets).filter(Tickets.trace_rfc_id == payload.rfc_id).first()
+    if not ticket:
+        raise HTTPException(404, f"Tiket dengan RFC ID {payload.rfc_id} tidak ditemukan")
+
+    # Buat notifikasi
+    notif = Notifications(
+        user_id=user.id,
+        message=payload.message,
+        notification_type="approval rfc",
+        ticket_id=ticket.ticket_id,  # FK ke ticket_id
+        status=payload.status,
+        is_read=False,
+        created_at=datetime.utcnow()
+    )
+
+    db.add(notif)
+    db.commit()
+    db.refresh(notif)
+
+    return {"status": "success", "notification_id": str(notif.id)}
 
 
 # TEKNISI
