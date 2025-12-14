@@ -390,8 +390,45 @@ def get_seksi_notifications(
         for n in announcement_notifications
     ]
 
+    war_room_notifications = (
+        db.query(
+            Notifications.id.label("notification_id"),
+            Notifications.war_room_id,
+            Notifications.message,
+            Notifications.is_read,
+            Notifications.created_at,
+            WarRoom.title,
+            WarRoom.link_meet,
+            WarRoom.start_time,
+            WarRoom.end_time
+        )
+        .join(WarRoom, WarRoom.id == Notifications.war_room_id)
+        .filter(
+            Notifications.user_id == user_id,
+            Notifications.notification_type == "war_room"
+        )
+        .order_by(Notifications.created_at.desc())
+        .all()
+    )
+
+    war_room_data = [
+        {
+            "notification_id": str(n.notification_id),
+            "war_room_id": str(n.war_room_id),
+            "title": n.title,
+            "link_meet": n.link_meet,
+            "start_time": n.start_time,
+            "end_time": n.end_time,
+            "message": n.message,
+            "is_read": n.is_read,
+            "created_at": n.created_at.replace(tzinfo=timezone.utc) if n.created_at.tzinfo is None else n.created_at,
+            "notification_type": "war_room"
+        }
+        for n in war_room_notifications
+    ]
+
     # 3️⃣ Gabungkan & urut berdasarkan created_at
-    all_notifications = ticket_data + announcement_data
+    all_notifications = ticket_data + announcement_data + war_room_data
     all_notifications.sort(key=lambda x: x["created_at"], reverse=True)
 
     return {
@@ -468,9 +505,87 @@ def get_seksi_notification_by_id(
             "is_read": notif.is_read,
             "notification_type": "announcement"
         }
+    elif notif.notification_type == "war_room":
+        war_room = db.query(WarRoom).filter(WarRoom.id == notif.war_room_id).first()
+        if not war_room:
+            raise HTTPException(404, "War Room tidak ditemukan")
+
+        # Ambil tiket terkait
+        ticket = None
+        if war_room.ticket_id:
+            ticket = db.query(Tickets).filter(Tickets.ticket_id == war_room.ticket_id).first()
+
+            # ambil attachments tiket
+            attachments = db.query(TicketAttachment).filter(TicketAttachment.has_id == ticket.ticket_id).all()
+            attachments_map = {ticket.ticket_id: attachments}
+
+            ticket_data = {
+                "ticket_id": str(ticket.ticket_id),
+                "ticket_code": ticket.ticket_code,
+                "title": ticket.title,
+                "description": ticket.description,
+                "status": ticket.status,
+                "rejection_reason_bidang": ticket.rejection_reason_bidang,
+                "priority": ticket.priority,
+                "created_at": ticket.created_at,
+                "ticket_source": ticket.ticket_source,
+                "status_ticket_pengguna": ticket.status_ticket_pengguna,
+                "status_ticket_seksi": ticket.status_ticket_seksi,
+                "request_type": ticket.request_type,
+                "nilai_risiko_asset": ticket.nilai_risiko_asset,
+                "opd_id_tickets": ticket.opd_id_tickets,
+                "lokasi_kejadian": ticket.lokasi_kejadian,
+                "creator": {
+                    "user_id": str(ticket.creates_id) if ticket.creates_id else None,
+                    "full_name": ticket.creates_user.full_name if ticket.creates_user else None,
+                    "profile": ticket.creates_user.profile_url if ticket.creates_user else None,
+                    "email": ticket.creates_user.email if ticket.creates_user else None,
+                },
+                "asset": {
+                    "asset_id": ticket.asset_id,
+                    "nama_asset": ticket.nama_asset,
+                    "kode_bmd": ticket.kode_bmd_asset,
+                    "nomor_seri": ticket.nomor_seri_asset,
+                    "kategori": ticket.kategori_asset,
+                    "subkategori_id": ticket.subkategori_id_asset,
+                    "subkategori_nama": ticket.subkategori_nama_asset,
+                    "jenis_asset": ticket.jenis_asset,
+                    "lokasi_asset": ticket.lokasi_asset,
+                    "opd_id_asset": ticket.opd_id_asset,
+                },
+                "files": [
+                    {
+                        "attachment_id": str(a.attachment_id),
+                        "file_path": a.file_path,
+                        "uploaded_at": a.uploaded_at
+                    }
+                    for a in attachments_map.get(ticket.ticket_id, [])
+                ]
+            }
+        else:
+            ticket_data = None
+
+        result = {
+            "notification_id": str(notif.id),
+            "war_room_id": str(notif.war_room_id),
+            "title": war_room.title,
+            "link_meet": war_room.link_meet,
+            "start_time": war_room.start_time,
+            "end_time": war_room.end_time,
+            "message": notif.message,
+            "is_read": notif.is_read,
+            "created_at": notif.created_at.replace(tzinfo=timezone.utc) if notif.created_at else None,
+            "notification_type": "war_room",
+            "ticket_metadata": ticket_data
+        }
+
+        # Tandai notif sudah dibaca
+        if not notif.is_read:
+            notif.is_read = True
+            db.commit()
+
         return {"status": "success", "data": result}
 
-    raise HTTPException(400, "Tipe notifikasi tidak valid")
 
 @router.patch("/notifications/seksi/{notification_id}/read")
 def mark_seksi_notification_read(

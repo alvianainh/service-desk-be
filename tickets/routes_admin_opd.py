@@ -408,7 +408,60 @@ def get_admin_dinas_notifications(
     ]
 
     # 4️⃣ Gabungkan & urut berdasarkan created_at
-    all_notifications = ticket_data + announcement_data + article_data
+    war_room_notifications = (
+        db.query(
+            Notifications.id.label("notification_id"),
+            Notifications.war_room_id,
+            Notifications.message,
+            Notifications.is_read,
+            Notifications.created_at,
+            WarRoom.title.label("war_room_title"),
+            WarRoom.link_meet,
+            WarRoom.start_time,
+            WarRoom.end_time,
+            WarRoom.ticket_id.label("ticket_id")
+        )
+        .join(WarRoom, WarRoom.id == Notifications.war_room_id)
+        .filter(
+            Notifications.user_id == admin_uuid,
+            Notifications.notification_type == "war_room"
+        )
+        .order_by(Notifications.created_at.desc())
+        .all()
+    )
+
+    war_room_data = []
+    for n in war_room_notifications:
+        war_room_data.append({
+            "notification_id": str(n.notification_id),
+            "war_room_id": str(n.war_room_id),
+            "title": n.war_room_title,
+            "link_meet": n.link_meet,
+            "start_time": n.start_time,
+            "end_time": n.end_time,
+            "message": n.message,
+            "is_read": n.is_read,
+            "created_at": n.created_at.replace(tzinfo=timezone.utc) if n.created_at.tzinfo is None else n.created_at,
+            "notification_type": "war_room",
+            "ticket_id": str(n.ticket_id) if n.ticket_id else None  # cukup ID tiket saja
+        })
+
+        war_room_data.append({
+            "notification_id": str(n.notification_id),
+            "war_room_id": str(n.war_room_id),
+            "title": n.war_room_title,
+            "link_meet": n.link_meet,
+            "start_time": n.start_time,
+            "end_time": n.end_time,
+            "message": n.message,
+            "is_read": n.is_read,
+            "created_at": n.created_at.replace(tzinfo=timezone.utc) if n.created_at.tzinfo is None else n.created_at,
+            "notification_type": "war_room",
+            "ticket_metadata": ticket_data
+        })
+
+    # Gabungkan semua notif
+    all_notifications = ticket_data + announcement_data + article_data + war_room_data
     all_notifications.sort(key=lambda x: x["created_at"], reverse=True)
 
     total = len(all_notifications)
@@ -479,7 +532,151 @@ def get_admin_dinas_notification_by_id(
             "created_by": str(notif.announcement.created_by)
         })
 
+    elif notif.notification_type == "war_room" and notif.war_room_id:
+        war_room = db.query(WarRoom).filter(WarRoom.id == notif.war_room_id).first()
+        if not war_room:
+            raise HTTPException(404, "War Room tidak ditemukan")
+
+        data.update({
+            "war_room_id": str(war_room.id),
+            "title": war_room.title,
+            "link_meet": war_room.link_meet,
+            "start_time": war_room.start_time,
+            "end_time": war_room.end_time
+        })
+
+        # Ambil tiket dari war room
+        if war_room.ticket_id:
+            ticket = db.query(Tickets).filter(Tickets.ticket_id == war_room.ticket_id).first()
+            if ticket:
+                opd = db.query(Dinas.nama).filter(Dinas.id == ticket.opd_id_tickets).first()
+                attachments = db.query(TicketAttachment).filter(TicketAttachment.has_id == ticket.ticket_id).all()
+                
+                ticket_data = {
+                    "ticket_id": str(ticket.ticket_id),
+                    "ticket_code": ticket.ticket_code,
+                    "title": ticket.title,
+                    "description": ticket.description,
+                    "status": ticket.status,
+                    "rejection_reason_bidang": ticket.rejection_reason_bidang,
+                    "priority": ticket.priority,
+                    "created_at": ticket.created_at,
+                    "ticket_source": ticket.ticket_source,
+                    "status_ticket_pengguna": ticket.status_ticket_pengguna,
+                    "status_ticket_seksi": ticket.status_ticket_seksi,
+                    "request_type": ticket.request_type,
+                    "nilai_risiko_asset": ticket.nilai_risiko_asset,
+                    "opd_id_tickets": ticket.opd_id_tickets,
+                    "lokasi_kejadian": ticket.lokasi_kejadian,
+                    "creator": {
+                        "user_id": str(ticket.creates_id) if ticket.creates_id else None,
+                        "full_name": ticket.creates_user.full_name if ticket.creates_user else None,
+                        "profile": ticket.creates_user.profile_url if ticket.creates_user else None,
+                        "email": ticket.creates_user.email if ticket.creates_user else None,
+                    },
+                    "asset": {
+                        "asset_id": ticket.asset_id,
+                        "nama_asset": ticket.nama_asset,
+                        "kode_bmd": ticket.kode_bmd_asset,
+                        "nomor_seri": ticket.nomor_seri_asset,
+                        "kategori": ticket.kategori_asset,
+                        "subkategori_id": ticket.subkategori_id_asset,
+                        "subkategori_nama": ticket.subkategori_nama_asset,
+                        "jenis_asset": ticket.jenis_asset,
+                        "lokasi_asset": ticket.lokasi_asset,
+                        "opd_id_asset": ticket.opd_id_asset,
+                    },
+                    "files": [
+                        {
+                            "attachment_id": str(a.attachment_id),
+                            "file_path": a.file_path,
+                            "uploaded_at": a.uploaded_at
+                        } for a in attachments
+                    ],
+                    "nama_dinas": opd.nama if opd else None,
+                    "rejection_reason_seksi": ticket.rejection_reason_seksi,
+                    "assigned_teknisi_id": str(ticket.assigned_teknisi_id) if ticket.assigned_teknisi_id else None
+                }
+
+                # 🔹 Masukkan ticket_data ke response
+                data["ticket"] = ticket_data
+
+
+
     return {"status": "success", "data": data}
+
+
+@router.patch("/notifications-opd/{notification_id}/read")
+def mark_notification_as_read(
+    notification_id: str = Path(..., description="ID notifikasi"),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user_universal)
+):
+    try:
+        notif_uuid = UUID(notification_id)
+        user_uuid = UUID(current_user["id"])
+    except ValueError:
+        raise HTTPException(400, "ID notifikasi atau user tidak valid")
+
+    notif = db.query(Notifications).filter(
+        Notifications.id == notif_uuid,
+        Notifications.user_id == user_uuid
+    ).first()
+
+    if not notif:
+        raise HTTPException(404, "Notifikasi tidak ditemukan")
+
+    notif.is_read = True
+    db.commit()
+
+    return {"status": "success", "message": "Notifikasi telah ditandai sebagai dibaca"}
+
+
+# 2️⃣ Mark as read all notifications for the user
+@router.patch("/notifications-opd/read-all")
+def mark_all_notifications_as_read(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user_universal)
+):
+    user_uuid = current_user["id"]
+
+    updated = db.query(Notifications).filter(
+        Notifications.user_id == user_uuid,
+        Notifications.is_read == False
+    ).update({Notifications.is_read: True}, synchronize_session=False)
+
+    db.commit()
+
+    return {
+        "status": "success",
+        "message": f"{updated} notifikasi telah ditandai sebagai dibaca"
+    }
+
+@router.delete("/notifications-opd/{notification_id}")
+def delete_notification_by_id(
+    notification_id: str = Path(..., description="ID notifikasi"),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user_universal)
+):
+    try:
+        notif_uuid = UUID(notification_id)
+        user_uuid = UUID(current_user["id"])
+    except ValueError:
+        raise HTTPException(400, "ID notifikasi atau user tidak valid")
+
+    notif = db.query(Notifications).filter(
+        Notifications.id == notif_uuid,
+        Notifications.user_id == user_uuid
+    ).first()
+
+    if not notif:
+        raise HTTPException(404, "Notifikasi tidak ditemukan")
+
+    db.delete(notif)
+    db.commit()
+
+    return {"status": "success", "message": "Notifikasi berhasil dihapus"}
+
 
 
 @router.get("/admin-opd/ratings")

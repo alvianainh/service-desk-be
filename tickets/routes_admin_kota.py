@@ -1,5 +1,5 @@
 import logging
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status, Response, Query
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status, Response, Query, Path
 from sqlalchemy.orm import Session
 from datetime import datetime, time, timezone
 from . import models, schemas
@@ -333,6 +333,26 @@ def get_admin_kota_notifications(
         .all()
     )
 
+    warroom_notifications = (
+        db.query(
+            Notifications.id.label("notification_id"),
+            Notifications.message,
+            Notifications.is_read,
+            Notifications.created_at,
+            WarRoom.id.label("war_room_id"),
+            WarRoom.title.label("war_room_title"),
+            WarRoom.start_time,
+            WarRoom.end_time
+        )
+        .join(WarRoom, WarRoom.id == Notifications.war_room_id)
+        .filter(
+            Notifications.user_id == admin_uuid,
+            Notifications.notification_type == "war_room"
+        )
+        .order_by(Notifications.created_at.desc())
+        .all()
+    )
+
     # Format response
     article_data = [
         {
@@ -359,10 +379,23 @@ def get_admin_kota_notifications(
         }
         for n in ticket_notifications
     ]
+    warroom_data = [
+        {
+            "notification_id": str(n.notification_id),
+            "war_room_id": str(n.war_room_id),
+            "title": n.war_room_title,
+            "start_time": n.start_time,
+            "end_time": n.end_time,
+            "message": n.message,
+            "is_read": n.is_read,
+            "created_at": n.created_at.replace(tzinfo=timezone.utc) if n.created_at.tzinfo is None else n.created_at,
+            "notification_type": "war_room"
+        }
+        for n in warroom_notifications
+    ]
 
-    # Gabungkan semua notif
     all_notifications = sorted(
-        article_data + ticket_data,
+        article_data + ticket_data + warroom_data,
         key=lambda x: x["created_at"],
         reverse=True
     )
@@ -377,6 +410,205 @@ def get_admin_kota_notifications(
         "data": all_notifications
     }
 
+@router.get("/notifications-all/admin-kota/{notification_id}")
+def get_admin_kota_notification_by_id(
+    notification_id: str = Path(..., description="ID notifikasi"),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user_universal)
+):
+    if current_user.get("role_name") != "diskominfo":
+        raise HTTPException(403, "Akses ditolak: hanya admin kota yang dapat melihat notifikasi")
+
+    try:
+        notif_uuid = UUID(notification_id)
+        admin_uuid = UUID(current_user["id"])
+    except ValueError:
+        raise HTTPException(400, "ID notifikasi atau user tidak valid")
+
+    # Ambil notifikasi
+    notif = db.query(Notifications).filter(
+        Notifications.id == notif_uuid,
+        Notifications.user_id == admin_uuid
+    ).first()
+
+    if not notif:
+        raise HTTPException(404, "Notifikasi tidak ditemukan")
+
+    # Siapkan data umum
+    data = {
+        "notification_id": str(notif.id),
+        "message": notif.message,
+        "is_read": notif.is_read,
+        "created_at": notif.created_at.replace(tzinfo=timezone.utc) if notif.created_at.tzinfo is None else notif.created_at,
+        "notification_type": notif.notification_type
+    }
+
+    # Detail tergantung tipe notifikasi
+    if notif.notification_type == "article" and notif.article_id:
+        article = db.query(Articles).filter(Articles.article_id == notif.article_id).first()
+        if article:
+            data.update({
+                "article_id": str(article.article_id),
+                "title": article.title,
+                "content": article.content
+            })
+
+    elif notif.notification_type == "ticket" and notif.ticket_id:
+        ticket = db.query(Tickets).filter(Tickets.ticket_id == notif.ticket_id).first()
+        if ticket:
+            data.update({
+                "ticket_id": str(ticket.ticket_id),
+                "ticket_code": ticket.ticket_code,
+                "request_type": ticket.request_type,
+                "status_ticket_pengguna": ticket.status_ticket_pengguna
+            })
+
+    elif notif.notification_type == "war_room" and notif.war_room_id:
+        war_room = db.query(WarRoom).filter(WarRoom.id == notif.war_room_id).first()
+        if not war_room:
+            raise HTTPException(404, "War Room tidak ditemukan")
+
+        data.update({
+            "war_room_id": str(war_room.id),
+            "title": war_room.title,
+            "link_meet": war_room.link_meet,
+            "start_time": war_room.start_time,
+            "end_time": war_room.end_time
+        })
+
+        # Ambil tiket dari war room
+        if war_room.ticket_id:
+            ticket = db.query(Tickets).filter(Tickets.ticket_id == war_room.ticket_id).first()
+            if ticket:
+                opd = db.query(Dinas.nama).filter(Dinas.id == ticket.opd_id_tickets).first()
+                attachments = db.query(TicketAttachment).filter(TicketAttachment.has_id == ticket.ticket_id).all()
+
+                ticket_data = {
+                    "ticket_id": str(ticket.ticket_id),
+                    "ticket_code": ticket.ticket_code,
+                    "title": ticket.title,
+                    "description": ticket.description,
+                    "status": ticket.status,
+                    "rejection_reason_bidang": ticket.rejection_reason_bidang,
+                    "priority": ticket.priority,
+                    "created_at": ticket.created_at,
+                    "ticket_source": ticket.ticket_source,
+                    "status_ticket_pengguna": ticket.status_ticket_pengguna,
+                    "status_ticket_seksi": ticket.status_ticket_seksi,
+                    "request_type": ticket.request_type,
+                    "nilai_risiko_asset": ticket.nilai_risiko_asset,
+                    "opd_id_tickets": ticket.opd_id_tickets,
+                    "lokasi_kejadian": ticket.lokasi_kejadian,
+                    "creator": {
+                        "user_id": str(ticket.creates_id) if ticket.creates_id else None,
+                        "full_name": ticket.creates_user.full_name if ticket.creates_user else None,
+                        "profile": ticket.creates_user.profile_url if ticket.creates_user else None,
+                        "email": ticket.creates_user.email if ticket.creates_user else None,
+                    },
+                    "asset": {
+                        "asset_id": ticket.asset_id,
+                        "nama_asset": ticket.nama_asset,
+                        "kode_bmd": ticket.kode_bmd_asset,
+                        "nomor_seri": ticket.nomor_seri_asset,
+                        "kategori": ticket.kategori_asset,
+                        "subkategori_id": ticket.subkategori_id_asset,
+                        "subkategori_nama": ticket.subkategori_nama_asset,
+                        "jenis_asset": ticket.jenis_asset,
+                        "lokasi_asset": ticket.lokasi_asset,
+                        "opd_id_asset": ticket.opd_id_asset,
+                    },
+                    "files": [
+                        {
+                            "attachment_id": str(a.attachment_id),
+                            "file_path": a.file_path,
+                            "uploaded_at": a.uploaded_at
+                        } for a in attachments
+                    ],
+                    "nama_dinas": opd.nama if opd else None,
+                    "rejection_reason_seksi": ticket.rejection_reason_seksi,
+                    "assigned_teknisi_id": str(ticket.assigned_teknisi_id) if ticket.assigned_teknisi_id else None
+                }
+
+                # Masukkan ticket_data ke response
+                data["ticket"] = ticket_data
+
+    return {
+        "status": "success",
+        "data": data
+    }
+
+
+# 1️⃣ Mark as read per notification
+@router.patch("/notifications-diskominfo/{notification_id}/read")
+def mark_notification_as_read(
+    notification_id: str = Path(..., description="ID notifikasi"),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user_universal)
+):
+    try:
+        notif_uuid = UUID(notification_id)
+        user_uuid = UUID(current_user["id"])
+    except ValueError:
+        raise HTTPException(400, "ID notifikasi atau user tidak valid")
+
+    notif = db.query(Notifications).filter(
+        Notifications.id == notif_uuid,
+        Notifications.user_id == user_uuid
+    ).first()
+
+    if not notif:
+        raise HTTPException(404, "Notifikasi tidak ditemukan")
+
+    notif.is_read = True
+    db.commit()
+
+    return {"status": "success", "message": "Notifikasi telah ditandai sebagai dibaca"}
+
+
+# 2️⃣ Mark as read all notifications for the user
+@router.patch("/notifications-diskominfo/read-all")
+def mark_all_notifications_as_read(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user_universal)
+):
+    user_uuid = current_user["id"]
+
+    updated = db.query(Notifications).filter(
+        Notifications.user_id == user_uuid,
+        Notifications.is_read == False
+    ).update({Notifications.is_read: True}, synchronize_session=False)
+
+    db.commit()
+
+    return {
+        "status": "success",
+        "message": f"{updated} notifikasi telah ditandai sebagai dibaca"
+    }
+
+@router.delete("/notifications-diskominfo/{notification_id}")
+def delete_notification_by_id(
+    notification_id: str = Path(..., description="ID notifikasi"),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user_universal)
+):
+    try:
+        notif_uuid = UUID(notification_id)
+        user_uuid = UUID(current_user["id"])
+    except ValueError:
+        raise HTTPException(400, "ID notifikasi atau user tidak valid")
+
+    notif = db.query(Notifications).filter(
+        Notifications.id == notif_uuid,
+        Notifications.user_id == user_uuid
+    ).first()
+
+    if not notif:
+        raise HTTPException(404, "Notifikasi tidak ditemukan")
+
+    db.delete(notif)
+    db.commit()
+
+    return {"status": "success", "message": "Notifikasi berhasil dihapus"}
 
 @router.get("/admin-kota/tickets/critical")
 def get_critical_tickets(
@@ -560,48 +792,46 @@ def create_war_room(payload: WarRoomCreate,
         db.add(WarRoomOPD(war_room_id=war_room.id, opd_id=opd_id))
 
     # Ambil semua user role seksi sesuai opd_id yang dipilih
-    seksi_users = (
+    target_users = (
         db.query(Users)
         .join(Roles, Roles.role_id == Users.role_id)
-        .filter(Roles.role_name == "seksi", Users.opd_id.in_(payload.opd_ids))
+        .filter(
+            Roles.role_name.in_(["seksi", "admin dinas"]),
+            Users.opd_id.in_(payload.opd_ids)
+        )
         .all()
     )
 
+
     # Buat WarRoomSeksi otomatis
-    for user in seksi_users:
-        db.add(WarRoomSeksi(war_room_id=war_room.id, seksi_id=user.id))
+    for user in target_users:
+        if user.role.role_name == "seksi":
+            db.add(WarRoomSeksi(war_room_id=war_room.id, seksi_id=user.id))
 
     db.commit()
 
-    # ==== Buat notifikasi ke semua user seksi dan admin OPD ====
-    # Notif untuk seksi
-    for user in seksi_users:
+    # ==== Buat notifikasi untuk semua target user ====
+    for user in target_users:
+        message = f"Anda diundang ke war room: {war_room.title}" if user.role.role_name == "seksi" else f"War room baru dibuat untuk OPD Anda: {war_room.title}"
         db.add(Notifications(
             user_id=user.id,
             war_room_id=war_room.id,
-            message=f"Anda diundang ke war room: {war_room.title}",
+            message=message,
             is_read=False,
             created_at=datetime.utcnow(),
             notification_type="war_room"
         ))
 
-    # Notif untuk OPD (misal ambil semua user di opd_ids)
-    opd_users = (
-        db.query(Users)
-        .filter(Users.opd_id.in_(payload.opd_ids))
-        .all()
-    )
+    db.add(Notifications(
+        user_id=current_user["id"],  # admin kota yang buat form
+        war_room_id=war_room.id,
+        message=f"War room '{war_room.title}' berhasil dibuat dan aktif.",
+        is_read=False,
+        created_at=datetime.utcnow(),
+        notification_type="war_room"
+    ))
 
-    for user in opd_users:
-        db.add(Notifications(
-            user_id=user.id,
-            war_room_id=war_room.id,
-            message=f"War room baru dibuat untuk OPD Anda: {war_room.title}",
-            is_read=False,
-            created_at=datetime.utcnow(),
-            notification_type="war_room"
-        ))
-
+    # Update status tiket
     ticket = db.query(Tickets).filter(Tickets.ticket_id == payload.ticket_id).first()
     if ticket:
         ticket.ticket_stage = "war-room-activate"
@@ -611,10 +841,9 @@ def create_war_room(payload: WarRoomCreate,
 
     return {
         "status": "success",
-        "message": "War room berhasil dibuat, notifikasi telah dikirim",
+        "message": "War room berhasil dibuat, notifikasi dikirim ke seksi dan admin OPD",
         "war_room_id": war_room.id
     }
-
 
 @router.get("/admin-kota/tickets/completed")
 def get_completed_tickets_for_diskominfo(
