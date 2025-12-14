@@ -2573,7 +2573,6 @@ def get_ratings_for_admin_kota_all_opd(
         "data": results
     }
 
-from fastapi import Query
 
 @router.get("/admin-kota/ratings/{opd_id}")
 def get_ratings_for_admin_kota_by_opd(
@@ -2660,4 +2659,71 @@ def get_ratings_for_admin_kota_by_opd(
         "total": len(results),
         "data": results
     }
+
+
+@router.get("/tickets-diskominfo/{ticket_id}/rating")
+def get_rating_by_ticket_id(
+    ticket_id: str = Path(..., description="ID tiket"),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user_universal)
+):
+    # Bisa tambahkan role check jika perlu
+    ticket = db.query(models.Tickets).filter(models.Tickets.ticket_id == ticket_id).first()
+    if not ticket:
+        raise HTTPException(404, "Tiket tidak ditemukan")
+
+    rating = db.query(models.TicketRatings).filter(models.TicketRatings.ticket_id == ticket.ticket_id).first()
+    if not rating:
+        return {"message": "Belum ada rating untuk tiket ini", "data": None}
+
+    attachments = ticket.attachments if hasattr(ticket, "attachments") else []
+
+    result = {
+        "ticket_id": str(ticket.ticket_id),
+        "ticket_code": ticket.ticket_code,
+        "title": ticket.title,
+        "status": ticket.status,
+        "priority": ticket.priority,
+        "lokasi_kejadian": ticket.lokasi_kejadian,
+        "created_at": ticket.created_at,
+        "pengerjaan_awal": ticket.pengerjaan_awal,
+        "pengerjaan_akhir": ticket.pengerjaan_akhir,
+        "pengerjaan_awal_teknisi": ticket.pengerjaan_awal_teknisi,
+        "pengerjaan_akhir_teknisi": ticket.pengerjaan_akhir_teknisi,
+
+        "rating": rating.rating,
+        "comment": rating.comment,
+        "rated_at": rating.created_at,
+
+        "user": {
+            "user_id": str(ticket.creates_id) if ticket.creates_id else None,
+            "full_name": ticket.creates_user.full_name if ticket.creates_user else None,
+            "email": ticket.creates_user.email if ticket.creates_user else None,
+            "profile": ticket.creates_user.profile_url if ticket.creates_user else None,
+        },
+
+        "asset": {
+            "asset_id": ticket.asset_id,
+            "nama_asset": ticket.nama_asset,
+            "kode_bmd": ticket.kode_bmd_asset,
+            "nomor_seri": ticket.nomor_seri_asset,
+            "kategori": ticket.kategori_asset,
+            "subkategori_id": ticket.subkategori_id_asset,
+            "subkategori_nama": ticket.subkategori_nama_asset,
+            "jenis_asset": ticket.jenis_asset,
+            "lokasi_asset": ticket.lokasi_asset,
+            "opd_id_asset": ticket.opd_id_asset,
+        },
+
+        "files": [
+            {
+                "attachment_id": str(a.attachment_id),
+                "file_path": a.file_path,
+                "uploaded_at": a.uploaded_at
+            }
+            for a in attachments
+        ]
+    }
+
+    return {"data": result}
 
