@@ -189,7 +189,7 @@ async def sso_login(
         "asset_token": token_arise
     })
 
-    redirect_url = f"http://localhost:5173/sso-callback?{query}"
+    redirect_url = f"https://fe.service-report.org/sso-callback?{query}"
 
     return RedirectResponse(url=redirect_url, status_code=302)
 
